@@ -286,7 +286,7 @@ article > .feed-ly-wrapper,
 /* Status indicators for posts */
 .feed-ly-status-indicator {
   position: absolute;
-  top: 40px;
+  top: 8px;
   right: 8px;
   width: 24px;
   height: 24px;
@@ -299,7 +299,7 @@ article > .feed-ly-wrapper,
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
   opacity: 0.95;
   transition:
-    background-color 0.5s ease,
+    background-color 0.3s ease,
     transform 0.3s ease,
     opacity 0.3s ease;
 }
@@ -313,6 +313,7 @@ article > .feed-ly-wrapper,
   background-color: #4caf50; /* Green */
   color: white;
   transform: scale(1);
+  animation: feedlyStatusPop 0.3s forwards;
 }
 
 .feed-ly-status-processing {
@@ -325,12 +326,14 @@ article > .feed-ly-wrapper,
   background-color: #ff9800; /* Orange */
   color: white;
   transform: scale(1);
+  animation: feedlyStatusPop 0.3s forwards;
 }
 
 .feed-ly-status-blocked {
   background-color: #f44336; /* Red */
   color: white;
   transform: scale(1);
+  animation: feedlyStatusPop 0.3s forwards;
 }
 
 /* Fade-in animation for status indicators */
@@ -340,7 +343,20 @@ article > .feed-ly-wrapper,
     transform: scale(0.8);
   }
   to {
-    opacity: 0.9;
+    opacity: 0.95;
+    transform: scale(1);
+  }
+}
+
+/* Pop animation for status changes */
+@keyframes feedlyStatusPop {
+  0% {
+    transform: scale(0.9);
+  }
+  50% {
+    transform: scale(1.15);
+  }
+  100% {
     transform: scale(1);
   }
 }

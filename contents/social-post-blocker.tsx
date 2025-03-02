@@ -573,8 +573,14 @@ function addStatusIndicator(
   container: Element,
   status: "processing" | "processed" | "filtered" | "blocked"
 ) {
-  // Add a debug log to help identify if the status indicators are being properly updated
-  console.debug(`Status update: ${status} for post`, container.className)
+  // Check if multiple indicators exist and remove extras
+  const allIndicators = container.querySelectorAll(".feed-ly-status-indicator")
+  if (allIndicators.length > 1) {
+    // Keep only the first indicator and remove the rest
+    for (let i = 1; i < allIndicators.length; i++) {
+      allIndicators[i].remove()
+    }
+  }
 
   // Check if an indicator already exists
   const existingIndicator = container.querySelector(".feed-ly-status-indicator")
@@ -593,6 +599,10 @@ function addStatusIndicator(
       "feed-ly-status-filtered",
       "feed-ly-status-blocked"
     )
+
+    // Force a DOM reflow to ensure the transition is visible
+    void (existingIndicator as HTMLElement).offsetWidth
+
     existingIndicator.classList.add(`feed-ly-status-${status}`)
 
     // Update the appropriate icon based on status
@@ -743,7 +753,7 @@ export function ContentFilterProvider({ children }) {
 
     // Track when processing started to ensure a minimum visual duration
     const processingStartTime = Date.now()
-    const minimumProcessingTime = 700 // milliseconds
+    const minimumProcessingTime = 400 // milliseconds (reduced from 700ms)
 
     // Extract text content based on platform
     let postText = ""
@@ -934,14 +944,11 @@ export function ContentFilterProvider({ children }) {
       } else {
         // Check if the post matches any filtered categories but not enough to block
         const hasFilteredContent = cachedResult.categories.some(
-          (cat: string) => {
-            return (
-              userCategories?.exclude?.includes(cat) ||
-              userCategories?.exclude?.some((exclude: string) =>
-                cat.toUpperCase().includes(exclude.toUpperCase())
-              )
+          (cat: string) =>
+            userCategories?.exclude?.includes(cat) ||
+            userCategories?.exclude?.some((exclude: string) =>
+              cat.toUpperCase().includes(exclude.toUpperCase())
             )
-          }
         )
 
         // Update to filtered or processed based on content
@@ -1071,16 +1078,20 @@ export function ContentFilterProvider({ children }) {
       // Calculate how much time has elapsed since processing started
       const processingElapsed = Date.now() - processingStartTime
 
-      // If processing was quick, add a small delay before updating status
       // This ensures users can see the transition between states
       const updateStatusWithDelay = async (
         status: "processed" | "filtered" | "blocked"
       ) => {
-        if (processingElapsed < minimumProcessingTime) {
+        // Ensure minimum processing time for visual feedback
+        const currentTime = Date.now()
+        const elapsedTime = currentTime - processingStartTime
+
+        if (elapsedTime < minimumProcessingTime) {
           await new Promise((resolve) =>
-            setTimeout(resolve, minimumProcessingTime - processingElapsed)
+            setTimeout(resolve, minimumProcessingTime - elapsedTime)
           )
         }
+
         // Update status indicator - don't remove it to ensure smooth transitions
         addStatusIndicator(container, status)
 
@@ -1107,14 +1118,13 @@ export function ContentFilterProvider({ children }) {
         removeProcessingAttribute(container)
       } else {
         // Check if the post matches any filtered categories but not enough to block
-        const hasFilteredContent = enhancedCategories.some((cat: string) => {
-          return (
+        const hasFilteredContent = enhancedCategories.some(
+          (cat: string) =>
             userCategories?.exclude?.includes(cat) ||
             userCategories?.exclude?.some((exclude: string) =>
               cat.toUpperCase().includes(exclude.toUpperCase())
             )
-          )
-        })
+        )
 
         // Update to filtered or processed based on content
         if (hasFilteredContent) {
@@ -1206,7 +1216,9 @@ function startObserving() {
           // On attribute changes on Twitter, recheck the entire container
           if (
             mutation.target instanceof HTMLElement &&
-            mutation.target.matches(FEED_SELECTORS.TWITTER.POST)
+            mutation.target.matches(FEED_SELECTORS.TWITTER.POST) &&
+            !mutation.target.hasAttribute("data-feedlyprocessing") &&
+            !mutation.target.querySelector(".feed-ly-status-indicator")
           ) {
             addedNodes.add(mutation.target)
           }
@@ -1250,22 +1262,43 @@ function startObserving() {
     // Initial process of existing posts
     const initialPosts = feed.querySelectorAll(FEED_SELECTORS[platform].POST)
     console.log(`🔍 [Feed] Processing ${initialPosts.length} initial posts`)
-    initialPosts.forEach((post) => {
-      // Only process if it doesn't already have a status indicator
-      // and isn't currently being processed
-      if (
-        !post.querySelector(".feed-ly-status-indicator") &&
-        !post.hasAttribute("data-feedlyprocessing")
-      ) {
-        processPost(post)
+
+    // Process posts in batches to avoid freezing the UI
+    const processBatch = (startIndex: number, batchSize: number) => {
+      const endIndex = Math.min(startIndex + batchSize, initialPosts.length)
+
+      for (let i = startIndex; i < endIndex; i++) {
+        const post = initialPosts[i]
+        // Only process if it doesn't already have a status indicator
+        // and isn't currently being processed
+        if (
+          !post.querySelector(".feed-ly-status-indicator") &&
+          !post.hasAttribute("data-feedlyprocessing")
+        ) {
+          processPost(post)
+        }
       }
-    })
+
+      // Process next batch if there are more posts
+      if (endIndex < initialPosts.length) {
+        setTimeout(() => {
+          processBatch(endIndex, batchSize)
+        }, 100) // Small delay between batches
+      }
+    }
+
+    // Start processing the first batch
+    processBatch(0, 5)
 
     // For Twitter, set up an interval to recheck for posts (handles scroll events)
     if (isTwitter) {
       setInterval(() => {
         const visiblePosts = feed.querySelectorAll(FEED_SELECTORS.TWITTER.POST)
-        visiblePosts.forEach((post) => {
+        let processedCount = 0
+
+        // Only process a limited number of posts per interval to avoid performance issues
+        for (let i = 0; i < visiblePosts.length && processedCount < 5; i++) {
+          const post = visiblePosts[i]
           // Only process posts that don't already have a status indicator
           // and aren't currently being processed
           if (
@@ -1273,9 +1306,10 @@ function startObserving() {
             !post.hasAttribute("data-feedlyprocessing")
           ) {
             processPost(post)
+            processedCount++
           }
-        })
-      }, 1000) // Check every 1 second - adjust if needed
+        }
+      }, 2000) // Check every 2 seconds instead of 1 second
     }
   } else {
     console.log("⏳ [Feed] Feed not found, retrying in 1s")
