@@ -24,7 +24,8 @@ interface CategoryResponse {
 
 const categorizeWithGPT4 = async (
 	text: string,
-	userCategories: UserCategories
+	userCategories: UserCategories,
+	authorName?: string
 ): Promise<CategoryResponse> => {
 	try {
 		const apiKey = await storage.get("openai-api-key")
@@ -89,18 +90,30 @@ const categorizeWithGPT4 = async (
 ## CATEGORIES:
 ${allCategories.map(cat => `- ${cat.toUpperCase()}`).join("\n")}
 
+## AUTHOR INFORMATION:
+${authorName ? `The author of this post is: "${authorName}"
+
+IMPORTANT: Pay close attention to the author's identity. If the author is:
+- A politician (e.g., senators, representatives, presidents, etc.)
+- A government official or agency (e.g., White House, Department of X, etc.)
+- A political commentator or known political figure
+- A news organization known for political content
+
+Then the post should AUTOMATICALLY be categorized as "POLITICS" regardless of the specific content.` : "No author information available"}
+
 ## INSTRUCTIONS:
 1. Analyze the following social media post
-2. Assign ALL relevant categories from the list above
-3. Provide a 1-2 sentence TL;DR of the post content
-4. Return your response in JSON format with "categories", "confidence", and "tldr" fields
+2. Consider the author's identity when relevant (politicians, government officials, celebrities, etc.)
+3. Assign ALL relevant categories from the list above
+4. Provide a 1-2 sentence TL;DR of the post content
+5. Return your response in JSON format with "categories", "confidence", and "tldr" fields
 
 ## POST TO CATEGORIZE:
 """
 ${text}
 """
 
-Analyze both explicit and implicit content. If this appears to be from an official government source (like The White House), it should automatically be categorized as POLITICS regardless of content.`
+Analyze both explicit and implicit content. If this appears to be from an official government source (like The White House) or a known political figure, it should automatically be categorized as POLITICS regardless of content.`
 
 		// Call OpenAI API
 		const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -168,9 +181,10 @@ Analyze both explicit and implicit content. If this appears to be from an offici
 }
 
 const handler: PlasmoMessaging.MessageHandler = async (req, res) => {
-	const { text, userCategories } = req.body
+	const { text, userCategories, authorName } = req.body
 
 	console.log("Categorizing post:", text?.substring(0, 100) + (text?.length > 100 ? "..." : ""))
+	console.log("Author:", authorName || "Unknown")
 	console.log("User categories received:", userCategories)
 
 	if (!text) {
@@ -181,7 +195,7 @@ const handler: PlasmoMessaging.MessageHandler = async (req, res) => {
 		})
 	}
 
-	const result = await categorizeWithGPT4(text, userCategories)
+	const result = await categorizeWithGPT4(text, userCategories, authorName)
 	res.send(result)
 }
 

@@ -25,8 +25,8 @@ declare global {
 export const config: PlasmoCSConfig = {
   matches: [
     "https://www.linkedin.com/feed*",
-    "https://twitter.com/home*",
-    "https://x.com/home*"
+    "https://twitter.com/home",
+    "https://x.com/home"
   ],
   all_frames: false
 }
@@ -721,10 +721,75 @@ export function ContentFilterProvider({ children }) {
     const data: PostData = {}
     data.text = postText
 
-    const actorNameElement = container.querySelector<HTMLElement>(
-      ".update-components-actor__title"
-    )
-    data.actorName = actorNameElement?.innerText?.trim() || ""
+    // Extract author name based on platform
+    if (isTwitter) {
+      // Twitter author extraction - try multiple selectors
+      let authorElement = container.querySelector('[data-testid="User-Name"]')
+
+      // If not found, try alternative selectors
+      if (!authorElement) {
+        // Try to find author in tweet header
+        authorElement = container
+          .querySelector('[data-testid="tweetText"]')
+          ?.closest("article")
+          ?.querySelector('[data-testid="User-Name"]')
+      }
+
+      if (!authorElement) {
+        // Try to find in quoted tweets
+        authorElement = container
+          .querySelector('[data-testid="tweet"]')
+          ?.querySelector('[data-testid="User-Name"]')
+      }
+
+      if (authorElement) {
+        // The first span usually contains the display name
+        const nameElement = authorElement.querySelector("span")
+        // The second span with dir="ltr" usually contains the @username
+        const usernameElement = authorElement.querySelector('span[dir="ltr"]')
+
+        const displayName = nameElement?.textContent?.trim() || ""
+        const username = usernameElement?.textContent?.trim() || ""
+
+        // Check if the account is verified (has a checkmark)
+        const isVerified = !!authorElement.querySelector(
+          '[data-testid="icon-verified"]'
+        )
+
+        // Include both display name and username when available, plus verification status
+        if (displayName && username) {
+          data.actorName = `${displayName} (${username})${isVerified ? " [Verified Account]" : ""}`
+        } else {
+          data.actorName = `${displayName || username}${isVerified ? " [Verified Account]" : ""}`
+        }
+
+        console.log(`👤 [Twitter Author] Found: ${data.actorName}`)
+      } else {
+        // Try one more approach - look for verified badge's parent
+        const verifiedBadge = container.querySelector(
+          '[data-testid="icon-verified"]'
+        )
+        if (verifiedBadge) {
+          const verifiedParent = verifiedBadge.closest('div[dir="auto"]')
+          if (verifiedParent) {
+            data.actorName = `${verifiedParent.textContent?.trim() || ""} [Verified Account]`
+            console.log(
+              `👤 [Twitter Author] Found via verified badge: ${data.actorName}`
+            )
+          }
+        }
+      }
+    } else {
+      // LinkedIn author extraction
+      const actorNameElement = container.querySelector<HTMLElement>(
+        ".update-components-actor__title"
+      )
+      data.actorName = actorNameElement?.innerText?.trim() || ""
+
+      if (data.actorName) {
+        console.log(`👤 [LinkedIn Author] Found: ${data.actorName}`)
+      }
+    }
 
     // Create unique identifier from post content
     const postHash = createPostHash(data)
@@ -789,11 +854,16 @@ export function ContentFilterProvider({ children }) {
         `📤 [Final Text] Sending for categorization: "${postText.substring(0, 100)}${postText.length > 100 ? "..." : ""}"`
       )
 
+      if (data.actorName) {
+        console.log(`👤 [Author] Post author: "${data.actorName}"`)
+      }
+
       // Get post categorization
       const response = await sendToBackground({
         name: "categorize-post",
         body: {
           text: postText,
+          authorName: data.actorName,
           userCategories: {
             include: userCategories?.include || [],
             exclude: userCategories?.exclude || []
