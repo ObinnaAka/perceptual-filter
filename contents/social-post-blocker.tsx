@@ -148,6 +148,35 @@ async function applyPostCover(
       return
     }
 
+    // Check if this is a media tweet to add special handling
+    const isTwitter =
+      window.location.hostname.includes("twitter.com") ||
+      window.location.hostname.includes("x.com")
+
+    const hasMedia =
+      isTwitter &&
+      (container.querySelector('[data-testid="videoPlayer"]') ||
+        container.querySelector('[data-testid="tweetPhoto"]') ||
+        container.querySelector("video"))
+
+    // Check if this is a cellInnerDiv tweet (highest level container)
+    const isCellInnerDiv =
+      isTwitter &&
+      (container.matches('[data-testid="cellInnerDiv"]') ||
+        container.closest('[data-testid="cellInnerDiv"]') === container)
+
+    if (hasMedia) {
+      console.log(
+        `🎥 [Post ${postHash.substring(0, 8)}] Applying media-specific cover`
+      )
+    }
+
+    if (isCellInnerDiv) {
+      console.log(
+        `📱 [Post ${postHash.substring(0, 8)}] Applying cellInnerDiv-specific cover`
+      )
+    }
+
     // Check if we already have a cover on this element
     const existingCover = container.querySelector(".feed-ly-cover")
     if (existingCover) {
@@ -156,11 +185,22 @@ async function applyPostCover(
 
     // Create a wrapper div with position relative to ensure proper positioning context
     const wrapperDiv = document.createElement("div")
-    wrapperDiv.className = "feed-ly-wrapper"
+    let wrapperClass = "feed-ly-wrapper"
+
+    if (hasMedia) {
+      wrapperClass += " feed-ly-media-wrapper"
+    }
+
+    if (isCellInnerDiv) {
+      wrapperClass += " feed-ly-cell-wrapper"
+    }
+
+    wrapperDiv.className = wrapperClass
     wrapperDiv.style.position = "relative"
     wrapperDiv.style.width = "100%"
     wrapperDiv.style.height = "100%"
     wrapperDiv.style.overflow = "hidden"
+    wrapperDiv.style.zIndex = isCellInnerDiv ? "9999" : "9000" // Higher z-index for cellInnerDiv
 
     // Cast to HTMLElement to access style properties
     const htmlContainer = container as HTMLElement
@@ -176,7 +216,17 @@ async function applyPostCover(
 
     // Create the cover div
     const coverDiv = document.createElement("div")
-    coverDiv.className = "feed-ly-cover"
+    let coverClass = "feed-ly-cover"
+
+    if (hasMedia) {
+      coverClass += " feed-ly-media-cover"
+    }
+
+    if (isCellInnerDiv) {
+      coverClass += " feed-ly-cell-cover"
+    }
+
+    coverDiv.className = coverClass
 
     // Apply more aggressive inline styles with blur effect
     coverDiv.style.position = "absolute"
@@ -184,9 +234,13 @@ async function applyPostCover(
     coverDiv.style.right = "0"
     coverDiv.style.bottom = "0"
     coverDiv.style.left = "0"
-    coverDiv.style.zIndex = "9999" // Use much higher z-index
-    coverDiv.style.backgroundColor = "rgba(255, 255, 255, 0.05)" // Reduced to 5% opacity
-    coverDiv.style.backdropFilter = "blur(10px)" // Stronger blur effect
+    coverDiv.style.zIndex = isCellInnerDiv ? "10000" : "9999"
+    coverDiv.style.backgroundColor =
+      hasMedia || isCellInnerDiv
+        ? "rgba(255, 255, 255, 0.4)"
+        : "rgba(255, 255, 255, 0.05)"
+    coverDiv.style.backdropFilter =
+      hasMedia || isCellInnerDiv ? "blur(15px)" : "blur(10px)"
     coverDiv.style.display = "flex"
     coverDiv.style.justifyContent = "center" // Center horizontally
     coverDiv.style.alignItems = "flex-start" // Align to top
@@ -427,14 +481,42 @@ function findBestOverlayTarget(container: Element, platform: string): Element {
   let targetElement = container
 
   if (platform === "TWITTER") {
-    // Try to find the best container for Twitter
-    // First, try to find the article element which is the main tweet container
+    // First, try to find the cellInnerDiv which is the highest-level container
+    const cellInnerDiv = container.closest('[data-testid="cellInnerDiv"]')
+
+    if (cellInnerDiv) {
+      // If we found the cellInnerDiv, use it as it's the highest level container
+      targetElement = cellInnerDiv
+      console.log("🎯 [Overlay] Using cellInnerDiv for complete coverage")
+      return targetElement
+    }
+
+    // If no cellInnerDiv, try to find the article element
     const article = container.closest("article")
 
     if (article) {
       // If we found an article, use it
       targetElement = article
       console.log("🎯 [Overlay] Using article element for overlay")
+
+      // For media tweets, we need to find the parent that fully contains the media
+      // Look for video or image containers
+      const mediaContainer = article.querySelector(
+        '[data-testid="videoPlayer"], [data-testid="tweetPhoto"], [data-testid="videoComponent"]'
+      )
+
+      if (mediaContainer) {
+        console.log("🎥 [Media Tweet] Found media content, optimizing overlay")
+        // If we found media content, use the article's parent to ensure full coverage
+        const articleParent =
+          article.parentElement?.parentElement?.parentElement
+        if (articleParent) {
+          targetElement = articleParent
+          console.log(
+            "🎯 [Overlay] Using article's grandparent for media tweet overlay"
+          )
+        }
+      }
     } else {
       // Try to find the main content area of the tweet
       const tweetContent = container
@@ -447,6 +529,9 @@ function findBestOverlayTarget(container: Element, platform: string): Element {
       } else {
         // Try alternative selectors for Twitter's new layout
         const alternativeSelectors = [
+          // Media containers
+          '[data-testid="cellInnerDiv"] div[style*="max-height"]',
+          '[data-testid="videoPlayer"]',
           // Main tweet container in timeline
           '[data-testid="cellInnerDiv"]',
           // Tweet container in thread view

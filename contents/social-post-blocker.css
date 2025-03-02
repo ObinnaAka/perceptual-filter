@@ -27,6 +27,7 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
+  z-index: 9000;
 }
 
 .feed-ly-cover {
@@ -44,6 +45,17 @@
   width: 100%;
   height: 100%;
   padding: 16px;
+  min-height: 100%;
+  box-sizing: border-box;
+  transform: translateZ(0);
+}
+
+/* Special styles for media tweets */
+article [data-testid="videoPlayer"] ~ .feed-ly-wrapper .feed-ly-cover,
+article [data-testid="tweetPhoto"] ~ .feed-ly-wrapper .feed-ly-cover,
+article video ~ .feed-ly-wrapper .feed-ly-cover {
+  background-color: rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(15px);
 }
 
 /* Compact layout */
@@ -174,4 +186,89 @@ body.twitter-dark {
   to {
     opacity: 0;
   }
+}
+
+/* Feed.ly Media-specific styles */
+.feed-ly-media-wrapper {
+  /* Ensure wrapper covers the entire post for media tweets */
+  position: absolute !important;
+  top: 0;
+  left: 0;
+  width: 100% !important;
+  height: 100% !important;
+  z-index: 9500 !important; /* Higher z-index to ensure it's on top */
+}
+
+.feed-ly-media-cover {
+  /* Stronger styling for media covers */
+  background-color: rgba(255, 255, 255, 0.4) !important;
+  backdrop-filter: blur(15px) !important;
+  -webkit-backdrop-filter: blur(15px) !important;
+  pointer-events: auto !important; /* Ensure clicks are captured */
+}
+
+/* Target the cellInnerDiv for complete coverage */
+[data-testid="cellInnerDiv"] > .feed-ly-wrapper {
+  position: absolute !important;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100% !important;
+  height: 100% !important;
+  z-index: 9999 !important;
+}
+
+/* Ensure the cover is fully visible and on top of all content */
+[data-testid="cellInnerDiv"] > .feed-ly-wrapper .feed-ly-cover {
+  background-color: rgba(255, 255, 255, 0.4) !important;
+  backdrop-filter: blur(15px) !important;
+  -webkit-backdrop-filter: blur(15px) !important;
+  z-index: 10000 !important;
+}
+
+/* Ensure video elements are properly covered */
+[data-testid="videoPlayer"] {
+  position: relative;
+  z-index: 1;
+}
+
+/* Target the parent element of videos for better positioning */
+[data-testid="videoPlayer"] ~ .feed-ly-wrapper,
+[data-testid="tweetPhoto"] ~ .feed-ly-wrapper {
+  position: absolute !important;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+/* Special classes for cellInnerDiv tweets */
+.feed-ly-cell-wrapper {
+  position: absolute !important;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100% !important;
+  height: 100% !important;
+  z-index: 9999 !important;
+  pointer-events: auto !important;
+}
+
+.feed-ly-cell-cover {
+  background-color: rgba(255, 255, 255, 0.4) !important;
+  backdrop-filter: blur(15px) !important;
+  -webkit-backdrop-filter: blur(15px) !important;
+  z-index: 10000 !important;
+  pointer-events: auto !important;
+}
+
+/* Ensure the wrapper is properly positioned for all types of tweets */
+article > .feed-ly-wrapper,
+[data-testid="tweet"] > .feed-ly-wrapper {
+  position: absolute !important;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
 }
