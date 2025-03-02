@@ -19,9 +19,17 @@ function OptionsPage() {
   useEffect(() => {
     // Load saved API key on component mount
     const loadApiKey = async () => {
-      const savedKey = await storage.get("openai-api-key")
-      if (savedKey) {
-        setApiKey(savedKey)
+      try {
+        const savedKey = await storage.get("openai-api-key")
+        console.log(
+          "Loaded API key from storage:",
+          savedKey ? "Key exists" : "No key found"
+        )
+        if (savedKey) {
+          setApiKey(savedKey)
+        }
+      } catch (error) {
+        console.error("Error loading API key from storage:", error)
       }
     }
     loadApiKey()
@@ -30,11 +38,12 @@ function OptionsPage() {
   const handleSave = async () => {
     try {
       await storage.set("openai-api-key", apiKey)
+      console.log("API key saved successfully")
       setSaveStatus("success")
       setTimeout(() => setSaveStatus(""), 3000)
     } catch (error) {
-      setSaveStatus("error")
       console.error("Error saving API key:", error)
+      setSaveStatus("error")
     }
   }
 
@@ -46,7 +55,7 @@ function OptionsPage() {
           <div className="flex items-center justify-center space-x-3 mb-4">
             <Logo size="md" />
             <h1 className="text-3xl font-bold text-foreground">
-              FilterIn Settings
+              Feed.ly Settings
             </h1>
           </div>
           <p className="text-muted-foreground max-w-md mx-auto">

@@ -1,6 +1,6 @@
 {
-  "name": "filterin",
-  "displayName": "FilterIn",
+  "name": "feed.ly",
+  "displayName": "Feed.ly",
   "version": "0.0.1",
   "description": "AI-powered content filtering for LinkedIn - customize your feed with intelligent post categorization",
   "author": "Plasmo Corp. <foss@plasmo.com>",
@@ -15,7 +15,7 @@
     "@radix-ui/react-switch": "^1.1.2",
     "class-variance-authority": "^0.7.1",
     "lucide-react": "^0.471.1",
-    "plasmo": "0.89.4",
+    "plasmo": "0.90.3",
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "tailwind-merge": "^2.6.0",

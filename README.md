@@ -1,12 +1,12 @@
-# FilterIn - AI-Powered Content Filtering for LinkedIn
+# Feed.ly - AI-Powered Content Filtering for LinkedIn
 
-FilterIn is a browser extension that helps you reclaim control of your LinkedIn feed using AI-powered content filtering. Instead of endless scrolling through irrelevant content, FilterIn intelligently categorizes posts to show you only what matters to you.
+Feed.ly is a browser extension that helps you reclaim control of your LinkedIn feed using AI-powered content filtering. Instead of endless scrolling through irrelevant content, Feed.ly intelligently categorizes posts to show you only what matters to you.
 
 ## 🌟 Inspiration
 
-The web started as a place of discovery, but has evolved into an environment where doom scrolling and AI-generated content dominate our attention. FilterIn aims to reverse this trend by using AI for good - helping users craft a more meaningful and personalized social media experience.
+The web started as a place of discovery, but has evolved into an environment where doom scrolling and AI-generated content dominate our attention. Feed.ly aims to reverse this trend by using AI for good - helping users craft a more meaningful and personalized social media experience.
 
-With California's new laws restricting algorithmic feeds for minors and a growing focus on "unregretted" user time, FilterIn represents a step towards more intentional content consumption on LinkedIn.
+With California's new laws restricting algorithmic feeds for minors and a growing focus on "unregretted" user time, Feed.ly represents a step towards more intentional content consumption on LinkedIn.
 
 ## ✨ Features
 
