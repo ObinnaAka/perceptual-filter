@@ -573,7 +573,9 @@ function addStatusIndicator(
   container: Element,
   status: "processing" | "processed" | "filtered" | "blocked"
 ) {
-  // Remove console logs that are causing clutter
+  // Add a debug log to help identify if the status indicators are being properly updated
+  console.debug(`Status update: ${status} for post`, container.className)
+
   // Check if an indicator already exists
   const existingIndicator = container.querySelector(".feed-ly-status-indicator")
 
@@ -694,6 +696,12 @@ function removeStatusIndicator(container: Element) {
         existingIndicator.remove()
       }
     }, 400) // Match the duration in CSS (.feed-ly-unmuting animation)
+  }
+}
+
+function removeProcessingAttribute(container: Element) {
+  if (container.hasAttribute("data-feedlyprocessing")) {
+    container.removeAttribute("data-feedlyprocessing")
   }
 }
 
@@ -920,6 +928,9 @@ export function ContentFilterProvider({ children }) {
           cachedResult.tldr,
           cachedResult.matchedCategories || []
         )
+
+        // Remove the processing attribute
+        removeProcessingAttribute(container)
       } else {
         // Check if the post matches any filtered categories but not enough to block
         const hasFilteredContent = cachedResult.categories.some(
@@ -946,6 +957,9 @@ export function ContentFilterProvider({ children }) {
         } else {
           addStatusIndicator(container, "processed")
         }
+
+        // Remove the processing attribute
+        removeProcessingAttribute(container)
       }
       return
     }
@@ -1069,6 +1083,9 @@ export function ContentFilterProvider({ children }) {
         }
         // Update status indicator - don't remove it to ensure smooth transitions
         addStatusIndicator(container, status)
+
+        // Remove the processing attribute after updating the status
+        removeProcessingAttribute(container)
       }
 
       if (shouldBlock) {
@@ -1085,6 +1102,9 @@ export function ContentFilterProvider({ children }) {
           tldr,
           matchingExcludeCategories
         )
+
+        // Remove the processing attribute
+        removeProcessingAttribute(container)
       } else {
         // Check if the post matches any filtered categories but not enough to block
         const hasFilteredContent = enhancedCategories.some((cat: string) => {
@@ -1103,6 +1123,9 @@ export function ContentFilterProvider({ children }) {
           // Update status indicator to processed (allowed) with possible delay
           await updateStatusWithDelay("processed")
         }
+
+        // Remove the processing attribute
+        removeProcessingAttribute(container)
       }
     } catch (error) {
       console.error(
@@ -1112,6 +1135,9 @@ export function ContentFilterProvider({ children }) {
 
       // Remove processing indicator on error
       removeStatusIndicator(container)
+
+      // Remove the processing attribute on error
+      removeProcessingAttribute(container)
 
       // Check for API key issues
       try {
