@@ -4,9 +4,7 @@ Feed.ly is a browser extension that helps you reclaim control of your LinkedIn f
 
 ## 🌟 Inspiration
 
-The web started as a place of discovery, but has evolved into an environment where doom scrolling and AI-generated content dominate our attention. Feed.ly aims to reverse this trend by using AI for good - helping users craft a more meaningful and personalized social media experience.
-
-With California's new laws restricting algorithmic feeds for minors and a growing focus on "unregretted" user time, Feed.ly represents a step towards more intentional content consumption on LinkedIn.
+The web started as a place of discovery, but has evolved into an environment where doom scrolling and AI-generated content dominate our attention. Feed.ly aims to reverse this trend by using AI for good - helping users create a more meaningful and personalized social feed.
 
 ## ✨ Features
 
