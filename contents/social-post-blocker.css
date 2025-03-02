@@ -20,6 +20,7 @@
 
 .feed-ly-unmuting {
   animation: feedlyFadeOut 0.4s forwards;
+  pointer-events: none;
 }
 
 .feed-ly-wrapper {
@@ -100,10 +101,17 @@ article video ~ .feed-ly-wrapper .feed-ly-cover {
   color: #333;
 }
 
+.feed-ly-compact-tags-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .feed-ly-compact-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+  align-items: center;
 }
 
 .feed-ly-compact-tag {
@@ -181,10 +189,12 @@ body.twitter-dark {
 
 @keyframes feedlyFadeOut {
   from {
-    opacity: 1;
+    opacity: 0.9;
+    transform: scale(1);
   }
   to {
     opacity: 0;
+    transform: scale(0.8);
   }
 }
 
@@ -271,4 +281,83 @@ article > .feed-ly-wrapper,
   inset: 0;
   width: 100% !important;
   height: 100% !important;
+}
+
+/* Status indicators for posts */
+.feed-ly-status-indicator {
+  position: absolute;
+  top: 40px;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  z-index: 9999;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  opacity: 0.9;
+  transition:
+    background-color 0.5s ease,
+    transform 0.3s ease,
+    opacity 0.3s ease;
+}
+
+.feed-ly-status-indicator:hover {
+  opacity: 1;
+}
+
+.feed-ly-status-processed {
+  background-color: #4caf50; /* Green */
+  color: white;
+  transform: scale(1);
+}
+
+.feed-ly-status-processing {
+  background-color: #ffc107; /* Yellow */
+  color: #333;
+  animation: feedlyPulse 1.5s infinite;
+}
+
+.feed-ly-status-filtered {
+  background-color: #ff9800; /* Orange */
+  color: white;
+  transform: scale(1);
+}
+
+.feed-ly-status-blocked {
+  background-color: #f44336; /* Red */
+  color: white;
+  transform: scale(1);
+}
+
+/* Fade-in animation for status indicators */
+@keyframes feedlyStatusFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+}
+
+/* Apply fade-in animation to new indicators */
+.feed-ly-status-new {
+  animation: feedlyStatusFadeIn 0.3s forwards;
+}
+
+/* Pulse animation for processing indicator */
+@keyframes feedlyPulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
