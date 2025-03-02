@@ -1,9 +1,26 @@
 import type { PlasmoCSConfig } from "plasmo"
-import React from "react"
+import React, { useCallback } from "react"
 import { createRoot } from "react-dom/client"
 
 import { sendToBackground } from "@plasmohq/messaging"
 import { Storage } from "@plasmohq/storage"
+
+// Import our CSS
+import "./social-post-blocker.css"
+
+// Add TypeScript interface extensions for the window object
+declare global {
+  interface Window {
+    __feedlyDebugMenuAdded?: boolean
+    __feedlyLastClickedElement?: Element
+    __feedlyDebug: {
+      forceReload: () => void
+      inspectPost: (selector: string | Element) => void
+      logState: () => void
+      explainFilter: () => void
+    }
+  }
+}
 
 export const config: PlasmoCSConfig = {
   matches: [
@@ -74,7 +91,7 @@ const FeedlyCoverElement: React.FC<{
     }, 400) // Match this with the CSS animation duration
   }
 
-  // Prioritize matched categories for display if available
+  // Display matched categories if available, otherwise show first three categories
   const displayCategories =
     matchedCategories.length > 0 ? matchedCategories : categories.slice(0, 3)
 
@@ -90,14 +107,14 @@ const FeedlyCoverElement: React.FC<{
             <p className="feed-ly-compact-title">Filtered content</p>
           </div>
           <div className="feed-ly-compact-tags">
-            {displayCategories.map((category) => (
-              <span key={category} className="feed-ly-compact-tag">
-                {category}
+            {displayCategories.map((category, index) => (
+              <span key={index} className="feed-ly-compact-tag">
+                {category.toUpperCase()}
               </span>
             ))}
-            {categories.length > 3 && displayCategories.length === 3 && (
-              <span className="feed-ly-compact-tag feed-ly-more-tag">
-                +{categories.length - 3}
+            {categories.length > 3 && matchedCategories.length === 0 && (
+              <span className="feed-ly-more-tag">
+                +{categories.length - 3} more
               </span>
             )}
           </div>
@@ -405,522 +422,466 @@ const FEED_SELECTORS = {
 }
 
 // Helper function to analyze post container and find best element to apply overlay
-function findBestOverlayTarget(
-  container: Element,
-  platform: string
-): HTMLElement {
-  // Cast the container to HTMLElement
-  const htmlContainer = container as HTMLElement
+function findBestOverlayTarget(container: Element, platform: string): Element {
+  // Default to the container itself
+  let targetElement = container
 
-  // For Twitter, try to find a more specific container if possible
   if (platform === "TWITTER") {
-    // Try to find a more specific container for better positioning
-    const tweetInner = container.querySelector(
-      '[data-testid="tweet"] > div:first-child'
-    )
-    if (tweetInner && tweetInner instanceof HTMLElement) {
-      console.log(
-        `📌 [Positioning] Using tweet inner container for better positioning`
-      )
-      return tweetInner
+    // Try to find the best container for Twitter
+    // First, try to find the article element which is the main tweet container
+    const article = container.closest("article")
+
+    if (article) {
+      // If we found an article, use it
+      targetElement = article
+      console.log("🎯 [Overlay] Using article element for overlay")
+    } else {
+      // Try to find the main content area of the tweet
+      const tweetContent = container
+        .querySelector('[data-testid="tweetText"]')
+        ?.closest('div[dir="auto"]')?.parentElement
+
+      if (tweetContent) {
+        targetElement = tweetContent
+        console.log("🎯 [Overlay] Using tweet content element for overlay")
+      } else {
+        // Try alternative selectors for Twitter's new layout
+        const alternativeSelectors = [
+          // Main tweet container in timeline
+          '[data-testid="cellInnerDiv"]',
+          // Tweet container in thread view
+          '[data-testid="tweet"]',
+          // General tweet container
+          ".css-1dbjc4n.r-1iusvr4.r-16y2uox",
+          // Fallback to any div with substantial content
+          "div.css-1dbjc4n:not(.r-18u37iz)"
+        ]
+
+        for (const selector of alternativeSelectors) {
+          const element = container.closest(selector)
+          if (element) {
+            targetElement = element
+            console.log(
+              `🎯 [Overlay] Using alternative selector "${selector}" for overlay`
+            )
+            break
+          }
+        }
+      }
     }
+  } else if (platform === "LINKEDIN") {
+    // For LinkedIn, try to find the main post container
+    const postContainer = container.closest(".feed-shared-update-v2")
 
-    // Alternative Twitter selectors that might provide better positioning context
-    const alternativeSelectors = [
-      'div[data-testid="tweetText"]',
-      'div.css-1dbjc4n[style*="position: relative"]',
-      'div[data-testid="cellInnerDiv"] > div'
-    ]
+    if (postContainer) {
+      targetElement = postContainer
+    } else {
+      // Try alternative LinkedIn selectors
+      const alternativeSelectors = [
+        ".feed-shared-update-v2__content",
+        ".update-components-actor",
+        ".update-components-text"
+      ]
 
-    for (const selector of alternativeSelectors) {
-      const element = container.querySelector(selector)
-      if (element && element instanceof HTMLElement) {
-        console.log(`📌 [Positioning] Using alternative container: ${selector}`)
-        return element
+      for (const selector of alternativeSelectors) {
+        const element =
+          container.closest(selector) || container.querySelector(selector)
+        if (element) {
+          targetElement = element
+          break
+        }
       }
     }
   }
 
-  // For LinkedIn, also try specific containers
-  if (platform === "LINKEDIN") {
-    const feedItem = container.querySelector(".feed-shared-update-v2__content")
-    if (feedItem && feedItem instanceof HTMLElement) {
-      console.log(
-        `📌 [Positioning] Using LinkedIn feed item content for better positioning`
-      )
-      return feedItem
-    }
-  }
-
-  // Return the original container if no better target found
-  return htmlContainer
+  return targetElement
 }
 
-// Update processPost to use the new targeting function
-async function processPost(container: Element) {
-  // Check if filter is enabled
-  const enabled = await storage.get("enabled")
+// This is a singleton to store the processPost function
+const ContentFilterInstance = {
+  processPost: null as ((container: Element) => Promise<void>) | null
+}
 
-  if (!enabled) {
-    return
-  }
+// Create a React context to share functionality
+const ContentFilterContext = React.createContext<{
+  processPost: (container: Element) => Promise<void>
+}>({
+  processPost: async () => {}
+})
 
-  // Determine which platform we're on
-  const isTwitter =
-    window.location.hostname.includes("twitter.com") ||
-    window.location.hostname.includes("x.com")
+// Create a provider component
+export function ContentFilterProvider({ children }) {
+  const storage = new Storage()
 
-  const platform = isTwitter ? "TWITTER" : "LINKEDIN"
+  // Convert processPost to useCallback
+  const processPost = useCallback(async (container: Element) => {
+    // Check if filter is enabled
+    const enabled = await storage.get("enabled")
 
-  // Skip if not a post container
-  if (!container.matches(FEED_SELECTORS[platform].POST)) {
-    return
-  }
-
-  // Extract text content based on platform
-  let postText = ""
-  if (isTwitter) {
-    // Get main tweet text
-    const tweetTextElement = container.querySelector(
-      '[data-testid="tweetText"]'
-    )
-    postText = tweetTextElement?.textContent || ""
-
-    // Check for media content descriptions
-    const mediaElements = container.querySelectorAll(
-      'div[data-testid="tweetPhoto"], div[data-testid="videoPlayer"]'
-    )
-    if (mediaElements.length > 0) {
-      // Look for alt text or descriptions
-      mediaElements.forEach((media) => {
-        const mediaDescription =
-          media.getAttribute("aria-label") ||
-          media.querySelector("[aria-label]")?.getAttribute("aria-label") ||
-          media.querySelector("img")?.getAttribute("alt")
-
-        if (
-          mediaDescription &&
-          !mediaDescription.includes("Image") &&
-          !mediaDescription.includes("Video")
-        ) {
-          console.log(
-            `🖼️ [Media] Found media description: "${mediaDescription.substring(0, 50)}${mediaDescription.length > 50 ? "..." : ""}"`
-          )
-          postText = postText
-            ? `${postText} | Media: ${mediaDescription}`
-            : mediaDescription
-        }
-      })
+    if (!enabled) {
+      return
     }
 
-    // Check for quoted tweet content
-    const quotedTweet = container.querySelector(
-      'div[role="link"][tabindex="0"].css-175oi2r.r-adacv'
-    )
-    if (quotedTweet) {
-      // Find the text content in the quoted tweet
-      const quotedTweetText =
-        quotedTweet.querySelector('[data-testid="tweetText"]')?.textContent ||
-        ""
+    // Determine which platform we're on
+    const isTwitter =
+      window.location.hostname.includes("twitter.com") ||
+      window.location.hostname.includes("x.com")
 
-      // If we found quoted tweet text, add it to the main text with a separator
-      if (quotedTweetText) {
-        console.log(
-          `🔄 [Quote Tweet] Found quoted content: "${quotedTweetText.substring(0, 50)}${quotedTweetText.length > 50 ? "..." : ""}"`
+    const platform = isTwitter ? "TWITTER" : "LINKEDIN"
+
+    // Skip if not a post container
+    if (!container.matches(FEED_SELECTORS[platform].POST)) {
+      return
+    }
+
+    // Extract text content based on platform
+    let postText = ""
+
+    if (isTwitter) {
+      // Twitter-specific content extraction
+      try {
+        // For improved Twitter extraction, get the full article content
+        const fullArticleText = container.textContent || ""
+
+        // Get main tweet text - try multiple selectors
+        const tweetTextElement = container.querySelector(
+          '[data-testid="tweetText"]'
         )
-        postText = postText
-          ? `${postText} | Quoted: ${quotedTweetText}`
-          : quotedTweetText
-      } else {
-        // Try alternative selectors for quoted tweet text
-        const alternativeQuotedSelectors = [
-          '.css-146c3p1[dir="auto"]',
-          ".css-1jxf684",
-          'div[lang="en"]'
-        ]
 
-        for (const selector of alternativeQuotedSelectors) {
-          const element = quotedTweet.querySelector(selector)
-          if (
-            element &&
-            element.textContent &&
-            element.textContent.trim().length > 0
-          ) {
-            const quotedText = element.textContent.trim()
-            console.log(
-              `🔄 [Quote Tweet] Found quoted content (alt): "${quotedText.substring(0, 50)}${quotedText.length > 50 ? "..." : ""}"`
-            )
-            postText = postText
-              ? `${postText} | Quoted: ${quotedText}`
-              : quotedText
+        // Extract the main text
+        const mainText = tweetTextElement?.textContent || ""
+
+        // Combine with full context for better categorization
+        postText = mainText || fullArticleText
+
+        console.log(
+          `🔍 [Twitter] Extracted text (${postText.length} chars): "${postText.substring(0, 100)}${postText.length > 100 ? "..." : ""}`
+        )
+
+        // Add additional context for shortened tweets
+        if (postText.length < 30 && fullArticleText.length > postText.length) {
+          console.log(
+            `📝 [Twitter] Adding additional context from full article`
+          )
+          postText = fullArticleText
+        }
+      } catch (error) {
+        console.error(`❌ [Twitter] Error extracting text:`, error)
+        // Fallback to full element text
+        postText = container.textContent || ""
+      }
+
+      // Check for media content descriptions
+      if (!postText) {
+        postText = container.textContent || ""
+      }
+    } else {
+      // LinkedIn text extraction
+      const textElement = container.querySelector(
+        ".feed-shared-update-v2__description, .update-components-text"
+      )
+      postText = textElement?.textContent || ""
+
+      // Try alternative LinkedIn selectors if needed
+      if (!postText) {
+        const alternativeLinkedInSelectors = [
+          ".update-components-text",
+          ".feed-shared-text"
+        ]
+        for (const selector of alternativeLinkedInSelectors) {
+          const element = container.querySelector(selector)
+          if (element && element.textContent) {
+            postText = element.textContent
             break
           }
         }
       }
     }
 
-    // If we still couldn't find text, try a more comprehensive approach
-    if (!postText || postText.trim().length < 5) {
+    // Get user categories - handle both array format (from storage) and Set format (if extracted from memory)
+    const userCategoriesRaw = (await storage.get<{
+      include: string[] | Set<string> | unknown
+      exclude: string[] | Set<string> | unknown
+    }>("user-categories")) || { include: [], exclude: [] }
+
+    // Convert to arrays if needed - storage always returns arrays, but we handle Sets too for future compatibility
+    const userCategories = {
+      include: Array.isArray(userCategoriesRaw?.include)
+        ? userCategoriesRaw.include
+        : userCategoriesRaw?.include instanceof Set
+          ? Array.from(userCategoriesRaw.include as Set<string>)
+          : [],
+      exclude: Array.isArray(userCategoriesRaw?.exclude)
+        ? userCategoriesRaw.exclude
+        : userCategoriesRaw?.exclude instanceof Set
+          ? Array.from(userCategoriesRaw.exclude as Set<string>)
+          : []
+    }
+
+    // Log the categories being used for filtering
+    console.log(`🔍 [Categories] Using categories for filtering:`, {
+      include: userCategories.include,
+      exclude: userCategories.exclude
+    })
+
+    if (
+      !userCategories ||
+      !userCategories.exclude ||
+      userCategories.exclude.length === 0
+    ) {
+      return
+    }
+
+    // Extract post data first
+    const data: PostData = {}
+    data.text = postText
+
+    const actorNameElement = container.querySelector<HTMLElement>(
+      ".update-components-actor__title"
+    )
+    data.actorName = actorNameElement?.innerText?.trim() || ""
+
+    // Create unique identifier from post content
+    const postHash = createPostHash(data)
+
+    // Check if we already have a cover element on this post to avoid duplicates
+    const existingCover = container.querySelector(".feed-ly-cover")
+    if (existingCover) {
+      return
+    }
+
+    // Check if we've already processed this post and have cached results
+    if (processedPosts.has(postHash)) {
+      const cachedResult = processedPosts.get(postHash)
       console.log(
-        `⚠️ [Text Extraction] Minimal text found, trying comprehensive extraction`
+        `🔄 [Post ${postHash.substring(0, 8)}] Using cached categorization`
       )
 
-      // Get all text nodes that might contain meaningful content
-      const allTextElements = Array.from(
-        container.querySelectorAll(
-          '.css-901oao, .css-1jxf684, [data-testid="tweet"] span, [dir="auto"]'
+      // If post should be blocked, apply the cover
+      if (cachedResult.shouldBlock) {
+        // Find the best element to apply the overlay to
+        const targetElement = findBestOverlayTarget(container, platform)
+
+        applyPostCover(
+          targetElement,
+          postHash,
+          cachedResult.categories,
+          cachedResult.tldr,
+          cachedResult.matchedCategories || []
         )
-      ).filter((el) => {
-        const text = el.textContent?.trim() || ""
-        // Filter out very short texts, usernames, timestamps, etc.
-        return (
-          text.length > 5 &&
-          !text.startsWith("@") &&
-          !text.match(/^\d+[KM]?$/) && // Metrics like 10K, 5M
-          !text.match(/^\w{3} \d{1,2}$/)
-        ) // Date formats like "Feb 28"
+      }
+      return
+    }
+
+    try {
+      console.log(
+        `🔍 [Post ${postHash.substring(0, 8)}] Categorizing text: "${postText.substring(0, 100)}${postText.length > 100 ? "..." : ""}"`
+      )
+
+      // Special handling for very short tweets that might be quote tweets
+      if (
+        postText.length < 15 &&
+        container.querySelector(
+          'div[role="link"][tabindex="0"].css-175oi2r.r-adacv'
+        )
+      ) {
+        console.log(
+          `⚠️ [Short Tweet] Detected very short tweet with quote: "${postText}"`
+        )
+
+        // For very short tweets, add context that this is likely a commentary on the quoted content
+        if (!postText.includes("Quoted:")) {
+          const originalText = postText
+          postText = `Commentary "${originalText}" on quoted content: ${postText.includes("|") ? postText.split("|")[1].trim() : "unknown content"}`
+          console.log(
+            `🔄 [Context] Added context to short tweet: "${postText.substring(0, 100)}${postText.length > 100 ? "..." : ""}"`
+          )
+        }
+      }
+
+      // Log the final text that will be sent for categorization
+      console.log(
+        `📤 [Final Text] Sending for categorization: "${postText.substring(0, 100)}${postText.length > 100 ? "..." : ""}"`
+      )
+
+      // Get post categorization
+      const response = await sendToBackground({
+        name: "categorize-post",
+        body: {
+          text: postText,
+          userCategories: {
+            include: userCategories?.include || [],
+            exclude: userCategories?.exclude || []
+          }
+        }
       })
 
-      // Combine all found text elements
-      const combinedText = allTextElements
-        .map((el) => el.textContent?.trim())
-        .filter(Boolean)
-        .join(" | ")
+      const categories = response.categories.map((cat) => cat.toUpperCase())
+      const tldr = response.tldr
 
-      if (combinedText && combinedText.length > postText.length) {
-        console.log(
-          `📝 [Text Extraction] Found comprehensive text: "${combinedText.substring(0, 50)}${combinedText.length > 50 ? "..." : ""}"`
-        )
-        postText = combinedText
-      }
-    }
-
-    // If we still couldn't find text with the primary selector, try some alternatives
-    if (!postText) {
-      // Try other potential text containers
-      const alternativeSelectors = [
-        '[data-testid="tweet"] > div:nth-child(2)',
-        ".css-901oao"
-      ]
-      for (const selector of alternativeSelectors) {
-        const element = container.querySelector(selector)
-        if (element && element.textContent) {
-          postText = element.textContent
-          break
-        }
-      }
-    }
-  } else {
-    // LinkedIn text extraction
-    const textElement = container.querySelector(
-      ".feed-shared-update-v2__description, .update-components-text"
-    )
-    postText = textElement?.textContent || ""
-
-    // Try alternative LinkedIn selectors if needed
-    if (!postText) {
-      const alternativeLinkedInSelectors = [
-        ".update-components-text",
-        ".feed-shared-text"
-      ]
-      for (const selector of alternativeLinkedInSelectors) {
-        const element = container.querySelector(selector)
-        if (element && element.textContent) {
-          postText = element.textContent
-          break
-        }
-      }
-    }
-  }
-
-  // Get user categories - handle both array format (from storage) and Set format (if extracted from memory)
-  const userCategoriesRaw = (await storage.get<{
-    include: string[] | Set<string> | unknown
-    exclude: string[] | Set<string> | unknown
-  }>("user-categories")) || { include: [], exclude: [] }
-
-  // Convert to arrays if needed - storage always returns arrays, but we handle Sets too for future compatibility
-  const userCategories = {
-    include: Array.isArray(userCategoriesRaw?.include)
-      ? userCategoriesRaw.include
-      : userCategoriesRaw?.include instanceof Set
-        ? Array.from(userCategoriesRaw.include as Set<string>)
-        : [],
-    exclude: Array.isArray(userCategoriesRaw?.exclude)
-      ? userCategoriesRaw.exclude
-      : userCategoriesRaw?.exclude instanceof Set
-        ? Array.from(userCategoriesRaw.exclude as Set<string>)
-        : []
-  }
-
-  // Log the categories being used for filtering
-  console.log(`🔍 [Categories] Using categories for filtering:`, {
-    include: userCategories.include,
-    exclude: userCategories.exclude
-  })
-
-  if (
-    !userCategories ||
-    !userCategories.exclude ||
-    userCategories.exclude.length === 0
-  ) {
-    return
-  }
-
-  // Extract post data first
-  const data: PostData = {}
-  data.text = postText
-
-  const actorNameElement = container.querySelector<HTMLElement>(
-    ".update-components-actor__title"
-  )
-  data.actorName = actorNameElement?.innerText?.trim() || ""
-
-  // Create unique identifier from post content
-  const postHash = createPostHash(data)
-
-  // Check if we already have a cover element on this post to avoid duplicates
-  const existingCover = container.querySelector(".feed-ly-cover")
-  if (existingCover) {
-    return
-  }
-
-  // Check if we've already processed this post and have cached results
-  if (processedPosts.has(postHash)) {
-    const cachedResult = processedPosts.get(postHash)
-    console.log(
-      `🔄 [Post ${postHash.substring(0, 8)}] Using cached categorization`
-    )
-
-    // If post should be blocked, apply the cover
-    if (cachedResult.shouldBlock) {
-      // Find the best element to apply the overlay to
-      const targetElement = findBestOverlayTarget(container, platform)
-
-      applyPostCover(
-        targetElement,
-        postHash,
-        cachedResult.categories,
-        cachedResult.tldr,
-        cachedResult.matchedCategories || []
-      )
-    }
-    return
-  }
-
-  try {
-    console.log(
-      `🔍 [Post ${postHash.substring(0, 8)}] Categorizing text: "${postText.substring(0, 100)}${postText.length > 100 ? "..." : ""}"`
-    )
-
-    // Special handling for very short tweets that might be quote tweets
-    if (
-      postText.length < 15 &&
-      container.querySelector(
-        'div[role="link"][tabindex="0"].css-175oi2r.r-adacv'
-      )
-    ) {
       console.log(
-        `⚠️ [Short Tweet] Detected very short tweet with quote: "${postText}"`
+        `📊 [Post ${postHash.substring(0, 8)}] Categories: ${categories.join(", ")}`
       )
+      console.log(`📝 [Post ${postHash.substring(0, 8)}] TLDR: ${tldr}`)
 
-      // For very short tweets, add context that this is likely a commentary on the quoted content
-      if (!postText.includes("Quoted:")) {
-        const originalText = postText
-        postText = `Commentary "${originalText}" on quoted content: ${postText.includes("|") ? postText.split("|")[1].trim() : "unknown content"}`
+      // Check if post should be blocked based on exclude categories
+      const matchingExcludeCategories = []
+
+      // Special logging for POLITICS category (since that's what the user is trying to filter)
+      if (categories.includes("POLITICS")) {
         console.log(
-          `🔄 [Context] Added context to short tweet: "${postText.substring(0, 100)}${postText.length > 100 ? "..." : ""}"`
+          `🔴 [Post ${postHash.substring(0, 8)}] Contains POLITICS category which should be filtered`
         )
       }
-    }
 
-    // Log the final text that will be sent for categorization
-    console.log(
-      `📤 [Final Text] Sending for categorization: "${postText.substring(0, 100)}${postText.length > 100 ? "..." : ""}"`
-    )
-
-    // Get post categorization
-    const response = await sendToBackground({
-      name: "categorize-post",
-      body: {
-        text: postText,
-        userCategories: {
-          include: userCategories?.include || [],
-          exclude: userCategories?.exclude || []
-        }
-      }
-    })
-
-    const categories = response.categories.map((cat) => cat.toUpperCase())
-    const tldr = response.tldr
-
-    console.log(
-      `📊 [Post ${postHash.substring(0, 8)}] Categories: ${categories.join(", ")}`
-    )
-    console.log(`📝 [Post ${postHash.substring(0, 8)}] TLDR: ${tldr}`)
-
-    // Check if post should be blocked based on exclude categories
-    const matchingExcludeCategories = []
-
-    // Special logging for POLITICS category (since that's what the user is trying to filter)
-    if (categories.includes("POLITICS")) {
+      // Log the excluded categories we're checking against
       console.log(
-        `🔴 [Post ${postHash.substring(0, 8)}] Contains POLITICS category which should be filtered`
-      )
-    }
-
-    // Log the excluded categories we're checking against
-    console.log(
-      `🔍 [Post ${postHash.substring(0, 8)}] Checking against exclude categories:`,
-      userCategories.exclude.map((cat) => cat.toUpperCase())
-    )
-
-    // Enhanced category matching with pattern recognition
-    // This helps ensure categories like "POLITICS" are detected even if returned as "POLITICAL" or similar
-    const enhancedCategories = [...categories]
-
-    // Map of common category variations to standardized forms
-    const categoryVariations = {
-      POLITIC: "POLITICS",
-      POLITICAL: "POLITICS",
-      POLICY: "POLITICS",
-      POLITICIAN: "POLITICS",
-      GOVERNMENT: "POLITICS",
-      ELECTION: "POLITICS",
-      SPORT: "SPORTS",
-      ATHLETIC: "SPORTS",
-      TECHNOLOGY: "TECH",
-      "ARTIFICIAL INTELLIGENCE": "AI",
-      "MACHINE LEARNING": "AI",
-      ML: "AI",
-      "BUSINESS NEWS": "BUSINESS",
-      ENTREPRENEURSHIP: "BUSINESS",
-      STARTUP: "BUSINESS",
-      ADVERTISEMENT: "PROMOTIONAL",
-      SPONSORED: "PROMOTIONAL",
-      SELLING: "PROMOTIONAL",
-      PRODUCT: "PROMOTIONAL",
-      HUMOR: "MEME",
-      FUNNY: "MEME",
-      JOKE: "MEME"
-    }
-
-    // Check if there are any patterns that match additional categories
-    for (const [pattern, category] of Object.entries(categoryVariations)) {
-      // If the categories already include the standardized form, skip
-      if (enhancedCategories.includes(category)) continue
-
-      // Check if any existing category contains the pattern
-      const hasPattern = categories.some((cat) =>
-        cat.toUpperCase().includes(pattern)
+        `🔍 [Post ${postHash.substring(0, 8)}] Checking against exclude categories:`,
+        userCategories.exclude.map((cat) => cat.toUpperCase())
       )
 
-      // If text contains a politics-related term and we're checking for politics
-      if (pattern === "POLITIC" || pattern === "POLITICAL") {
-        const hasPoliticalTerms =
-          postText.toUpperCase().includes("POLITIC") ||
-          postText.toUpperCase().includes("VOTE") ||
-          postText.toUpperCase().includes("ELECTION") ||
-          postText.toUpperCase().includes("GOVERNMENT") ||
-          postText.toUpperCase().includes("PRESIDENT") ||
-          postText.toUpperCase().includes("DEMOCRAT") ||
-          postText.toUpperCase().includes("REPUBLICAN")
+      // Enhanced category matching with pattern recognition
+      // This helps ensure categories like "POLITICS" are detected even if returned as "POLITICAL" or similar
+      const enhancedCategories = [...categories]
 
-        if (hasPoliticalTerms && !enhancedCategories.includes("POLITICS")) {
+      // Map of common category variations to standardized forms
+      const categoryVariations = {
+        POLITIC: "POLITICS",
+        POLITICAL: "POLITICS",
+        POLICY: "POLITICS",
+        POLITICIAN: "POLITICS",
+        GOVERNMENT: "POLITICS",
+        ELECTION: "POLITICS",
+        SPORT: "SPORTS",
+        ATHLETIC: "SPORTS",
+        TECHNOLOGY: "TECH",
+        "ARTIFICIAL INTELLIGENCE": "AI",
+        "MACHINE LEARNING": "AI",
+        ML: "AI",
+        "BUSINESS NEWS": "BUSINESS",
+        ENTREPRENEURSHIP: "BUSINESS",
+        STARTUP: "BUSINESS",
+        ADVERTISEMENT: "PROMOTIONAL",
+        SPONSORED: "PROMOTIONAL",
+        SELLING: "PROMOTIONAL",
+        PRODUCT: "PROMOTIONAL",
+        HUMOR: "MEME",
+        FUNNY: "MEME",
+        JOKE: "MEME"
+      }
+
+      // Check if there are any patterns that match additional categories
+      for (const [pattern, category] of Object.entries(categoryVariations)) {
+        // If the categories already include the standardized form, skip
+        if (enhancedCategories.includes(category)) continue
+
+        // Check if any existing category contains the pattern
+        const hasPattern = categories.some((cat) =>
+          cat.toUpperCase().includes(pattern)
+        )
+
+        // If the pattern is found, add the standardized category
+        if (hasPattern) {
           console.log(
-            `🔍 [Post ${postHash.substring(0, 8)}] Political terms detected in post text - adding POLITICS category`
+            `🔄 [Post ${postHash.substring(0, 8)}] Found pattern "${pattern}" - adding "${category}" category`
           )
-          enhancedCategories.push("POLITICS")
+          enhancedCategories.push(category)
         }
       }
 
-      // If the pattern is found, add the standardized category
-      if (hasPattern) {
+      // Log enhanced categories if they differ from the original
+      if (enhancedCategories.length > categories.length) {
         console.log(
-          `🔄 [Post ${postHash.substring(0, 8)}] Found pattern "${pattern}" - adding "${category}" category`
-        )
-        enhancedCategories.push(category)
-      }
-    }
-
-    // Log enhanced categories if they differ from the original
-    if (enhancedCategories.length > categories.length) {
-      console.log(
-        `📊 [Post ${postHash.substring(0, 8)}] Enhanced categories: ${enhancedCategories.join(", ")}`
-      )
-    }
-
-    const shouldBlock = userCategories?.exclude?.some((excludeCategory) => {
-      // Ensure case-insensitive comparison by converting both to uppercase
-      const upperExclude = excludeCategory.toUpperCase()
-
-      // Check if any of the post categories match this exclude category
-      const isMatch = enhancedCategories.some(
-        (category) => category.toUpperCase() === upperExclude
-      )
-
-      if (isMatch) {
-        matchingExcludeCategories.push(upperExclude)
-        console.log(
-          `🎯 [Post ${postHash.substring(0, 8)}] Matched exclude category: ${upperExclude}`
+          `📊 [Post ${postHash.substring(0, 8)}] Enhanced categories: ${enhancedCategories.join(", ")}`
         )
       }
 
-      return isMatch
-    })
+      const shouldBlock = userCategories?.exclude?.some((excludeCategory) => {
+        // Ensure case-insensitive comparison by converting both to uppercase
+        const upperExclude = excludeCategory.toUpperCase()
 
-    // Log the filtering results
-    if (shouldBlock) {
-      console.log(
-        `🚫 [Post ${postHash.substring(0, 8)}] FILTERED - Matched exclude ${matchingExcludeCategories.length > 1 ? "categories" : "category"}: ${matchingExcludeCategories.join(", ")}`
-      )
-    } else {
-      console.log(
-        `✅ [Post ${postHash.substring(0, 8)}] ALLOWED - No matching exclude categories`
-      )
-    }
+        // Check if any of the post categories match this exclude category
+        const isMatch = enhancedCategories.some(
+          (category) => category.toUpperCase() === upperExclude
+        )
 
-    // Store the result in our cache
-    processedPosts.set(postHash, {
-      categories: enhancedCategories,
-      tldr,
-      shouldBlock,
-      matchedCategories: matchingExcludeCategories
-    })
+        if (isMatch) {
+          matchingExcludeCategories.push(upperExclude)
+          console.log(
+            `🎯 [Post ${postHash.substring(0, 8)}] Matched exclude category: ${upperExclude}`
+          )
+        }
 
-    if (shouldBlock) {
-      // Find the best element to apply the overlay to
-      const targetElement = findBestOverlayTarget(container, platform)
+        return isMatch
+      })
 
-      applyPostCover(
-        targetElement,
-        postHash,
-        enhancedCategories,
+      // Log the filtering results
+      if (shouldBlock) {
+        console.log(
+          `🚫 [Post ${postHash.substring(0, 8)}] FILTERED - Matched exclude ${matchingExcludeCategories.length > 1 ? "categories" : "category"}: ${matchingExcludeCategories.join(", ")}`
+        )
+      } else {
+        console.log(
+          `✅ [Post ${postHash.substring(0, 8)}] ALLOWED - No matching exclude categories`
+        )
+      }
+
+      // Store the result in our cache
+      processedPosts.set(postHash, {
+        categories: enhancedCategories,
         tldr,
-        matchingExcludeCategories
-      )
-    }
-  } catch (error) {
-    console.error(
-      `❌ [Post ${postHash.substring(0, 8)}] Error processing:`,
-      error
-    )
+        shouldBlock,
+        matchedCategories: matchingExcludeCategories
+      })
 
-    // Check for API key issues
-    try {
-      const apiKey = await storage.get("openai-api-key")
-      if (!apiKey) {
-        console.error(
-          "❌ [API] OpenAI API key not set - please configure in extension options"
+      if (shouldBlock) {
+        // Find the best element to apply the overlay to
+        const targetElement = findBestOverlayTarget(container, platform)
+
+        applyPostCover(
+          targetElement,
+          postHash,
+          enhancedCategories,
+          tldr,
+          matchingExcludeCategories
         )
       }
-    } catch (storageError) {
-      console.error("❌ [Storage] Error checking API key:", storageError)
+    } catch (error) {
+      console.error(
+        `❌ [Post ${postHash.substring(0, 8)}] Error processing:`,
+        error
+      )
+
+      // Check for API key issues
+      try {
+        const apiKey = await storage.get("openai-api-key")
+        if (!apiKey) {
+          console.error(
+            "❌ [API] OpenAI API key not set - please configure in extension options"
+          )
+        }
+      } catch (storageError) {
+        console.error("❌ [Storage] Error checking API key:", storageError)
+      }
     }
-  }
+  }, []) // Empty dependency array since this doesn't depend on props or state
+
+  // Store the processPost function in the singleton for non-React code
+  ContentFilterInstance.processPost = processPost
+
+  return (
+    <ContentFilterContext.Provider value={{ processPost }}>
+      {children}
+    </ContentFilterContext.Provider>
+  )
 }
 
-// Update startObserving to add more debugging info
+// Create a hook to use the context
+export function useContentFilter() {
+  return React.useContext(ContentFilterContext)
+}
+
+// Update startObserving to use the singleton
 function startObserving() {
   console.log("👀 [Observer] Starting feed observation")
   const isTwitter =
@@ -929,6 +890,14 @@ function startObserving() {
 
   const platform = isTwitter ? "TWITTER" : "LINKEDIN"
   const feed = document.querySelector(FEED_SELECTORS[platform].FEED)
+
+  if (!ContentFilterInstance.processPost) {
+    console.error("❌ [Observer] processPost function not available yet")
+    setTimeout(startObserving, 500)
+    return
+  }
+
+  const processPost = ContentFilterInstance.processPost
 
   if (feed) {
     // For Twitter, we need a more aggressive observer setup
@@ -993,7 +962,7 @@ function startObserving() {
   }
 }
 
-// Update watch function
+// Update storage watch handlers
 storage.watch({
   "user-categories": (newValue) => {
     // Type guard to check if newValue has the expected structure
@@ -1033,7 +1002,7 @@ storage.watch({
       console.log(
         `🔄 [Feed] Reprocessing ${allPosts.length} posts due to category update`
       )
-      allPosts.forEach(processPost)
+      allPosts.forEach((post) => ContentFilterInstance.processPost(post))
     }
   },
   "categories-updated": (newValue) => {
@@ -1059,13 +1028,13 @@ storage.watch({
         console.log(
           `🔄 [Feed] Reprocessing ${allPosts.length} posts due to category update trigger`
         )
-        allPosts.forEach(processPost)
+        allPosts.forEach((post) => ContentFilterInstance.processPost(post))
       }
     })
   },
-  enabled: (newValue) => {
+  enabled: (newEnabled) => {
     // Cast the newValue to boolean explicitly
-    const enabled = Boolean(newValue)
+    const enabled = Boolean(newEnabled)
     console.log(`⚙️ [State] Filter ${enabled ? "ENABLED ✅" : "DISABLED ❌"}`)
 
     // Clear processed posts cache and reprocess
@@ -1078,16 +1047,14 @@ storage.watch({
         ? "TWITTER"
         : "LINKEDIN"
     const feed = document.querySelector(FEED_SELECTORS[platform].FEED)
-    if (feed) {
+    if (newEnabled && feed) {
       const allPosts = feed.querySelectorAll(FEED_SELECTORS[platform].POST)
-      if (enabled) {
-        console.log(
-          `🔄 [Feed] Reprocessing ${allPosts.length} posts due to enabled state change`
-        )
-        allPosts.forEach(processPost)
-      } else {
-        console.log("🔄 [Feed] Filter disabled - no posts will be blocked")
-      }
+      console.log(
+        `🔄 [Feed] Reprocessing ${allPosts.length} posts due to enabled state change`
+      )
+      allPosts.forEach((post) => ContentFilterInstance.processPost(post))
+    } else {
+      console.log("🔄 [Feed] Filter disabled - no posts will be blocked")
     }
   }
 })
@@ -1165,73 +1132,378 @@ async function verifyUserCategories() {
   }
 }
 
-// Initialize extension with category check and debug message
-const initializeExtension = async () => {
-  console.log("===============================================")
-  console.log("🚀 [Feed.ly] Initializing")
-  console.log("===============================================")
+// Initialize the extension
+async function initializeExtension() {
+  console.log("🚀 [Initialization] Starting extension initialization")
 
-  try {
-    // Check if we're on a supported site
-    const isTwitter =
-      window.location.hostname.includes("twitter.com") ||
-      window.location.hostname.includes("x.com")
-    const isLinkedIn = window.location.hostname.includes("linkedin.com")
+  // Check if we're on a supported site
+  const isTwitter =
+    window.location.hostname.includes("twitter.com") ||
+    window.location.hostname.includes("x.com")
+  const isLinkedIn = window.location.hostname.includes("linkedin.com")
 
-    if (!isTwitter && !isLinkedIn) {
-      console.log("❌ [Site] Not supported")
-      return
-    }
-
-    console.log(`✅ [Site] Supported: ${isTwitter ? "Twitter/X" : "LinkedIn"}`)
-
-    // Verify enabled state
-    const enabled = await storage.get<boolean>("enabled")
-    console.log(`⚙️ [State] Filter ${enabled ? "ENABLED ✅" : "DISABLED ❌"}`)
-
-    // Verify categories - force a clean verification
-    await storage.remove("user-categories-temp") // Remove any temporary storage
-    const userCategories = await verifyUserCategories()
-
-    // Output how many categories are configured
-    if (userCategories) {
-      console.log("📋 [Categories] Configuration:")
-      console.log(
-        `  • Include (${userCategories.include.length}): ${userCategories.include.length ? userCategories.include.join(", ") : "(none)"}`
-      )
-      console.log(
-        `  • Exclude (${userCategories.exclude.length}): ${userCategories.exclude.length ? userCategories.exclude.join(", ") : "(none)"}`
-      )
-
-      if (userCategories.exclude.length === 0) {
-        console.log(
-          "⚠️ [Categories] No exclude categories set - nothing will be filtered"
-        )
-      } else if (enabled) {
-        console.log(
-          `🛡️ [Filter] Active for: ${userCategories.exclude.join(", ")}`
-        )
-      }
-    }
-
-    // Check for API key
-    const apiKey = await storage.get("openai-api-key")
-    if (apiKey && typeof apiKey === "string" && apiKey.trim() !== "") {
-      console.log("✅ [API] OpenAI key configured")
-    } else {
-      console.log("❌ [API] OpenAI key not set - categorization will fail")
-    }
-
-    // Start observing
-    console.log("👀 [Feed] Starting observation")
-    startObserving()
-
-    console.log("===============================================")
-    console.log("✅ [Feed.ly] Initialization complete")
-    console.log("===============================================")
-  } catch (error) {
-    console.error("❌ [Init] Error:", error)
+  if (!isTwitter && !isLinkedIn) {
+    console.log(
+      "⚠️ [Initialization] Not on a supported site, extension will not activate"
+    )
+    return
   }
+
+  // Check if extension is enabled
+  const enabled = await storage.get<boolean>("enabled")
+  if (enabled === false) {
+    console.log("⚠️ [Initialization] Extension is disabled")
+    return
+  }
+
+  // Log current categories for debugging
+  const userCategoriesRaw = await storage.get<{
+    include: string[] | Set<string> | unknown
+    exclude: string[] | Set<string> | unknown
+  }>("user-categories")
+
+  console.log(
+    "📋 [Categories] Current categories from storage:",
+    userCategoriesRaw
+  )
+
+  // Verify if POLITICS is in the exclude categories
+  const excludeCategories = Array.isArray(userCategoriesRaw?.exclude)
+    ? userCategoriesRaw.exclude
+    : userCategoriesRaw?.exclude instanceof Set
+      ? Array.from(userCategoriesRaw.exclude as Set<string>)
+      : []
+
+  if (excludeCategories.some((cat) => cat.toUpperCase() === "POLITICS")) {
+    console.log(
+      "✅ [Categories] POLITICS is in the exclude categories - political content will be filtered"
+    )
+  } else {
+    console.log(
+      "⚠️ [Categories] POLITICS is NOT in the exclude categories - political content will NOT be filtered"
+    )
+  }
+
+  // Verify CSS is properly loaded
+  verifyCssLoaded()
+
+  // Initialize debug utilities early
+  initDebugUtils()
+
+  // Verify user categories
+  await verifyUserCategories()
+
+  // Create a root div for React to render into
+  const rootDiv = document.createElement("div")
+  rootDiv.id = "feed-ly-react-root"
+  document.body.appendChild(rootDiv)
+
+  // Initialize React app with ContentFilterProvider
+  const root = createRoot(rootDiv)
+  root.render(
+    <ContentFilterProvider>
+      <div id="feed-ly-initialized" style={{ display: "none" }} />
+    </ContentFilterProvider>
+  )
+
+  // Start observing the feed once React is mounted
+  // We'll use an observer pattern so the React context is available
+  const checkReactInitialized = setInterval(() => {
+    if (document.getElementById("feed-ly-initialized")) {
+      clearInterval(checkReactInitialized)
+      startObserving()
+      console.log(
+        "✅ [Initialization] Extension initialized successfully with React context"
+      )
+    }
+  }, 100)
+}
+
+// Function to verify CSS is properly loaded
+function verifyCssLoaded() {
+  console.log("🔍 [Styles] Checking if CSS is properly loaded...")
+
+  // Check if a CSS rule from our stylesheet exists
+  const cssRules = Array.from(document.styleSheets)
+    .filter((sheet) => {
+      try {
+        // Only consider sheets from our extension
+        return sheet.href === null || sheet.href.includes("chrome-extension://")
+      } catch (e) {
+        return false
+      }
+    })
+    .flatMap((sheet) => {
+      try {
+        return Array.from(sheet.cssRules)
+      } catch (e) {
+        return []
+      }
+    })
+    .map((rule) => rule.cssText)
+
+  // Look for our specific CSS classes
+  const hasFeedlyCss = cssRules.some(
+    (rule) =>
+      rule.includes(".feed-ly-compact") ||
+      rule.includes(".feed-ly-wrapper") ||
+      rule.includes(".feed-ly-cover")
+  )
+
+  if (hasFeedlyCss) {
+    console.log("✅ [Styles] CSS is properly loaded")
+  } else {
+    console.log(
+      "⚠️ [Styles] CSS may not be properly loaded, injecting it manually"
+    )
+
+    // Inject the CSS manually as a fallback
+    const style = document.createElement("style")
+    style.textContent = `
+      .feed-ly-wrapper {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        z-index: 1000;
+      }
+      .feed-ly-compact {
+        background: rgba(29, 155, 240, 0.1);
+        border: 1px solid rgba(29, 155, 240, 0.2);
+        border-radius: 12px;
+        padding: 12px 16px;
+        margin: 8px 0;
+        backdrop-filter: blur(8px);
+      }
+      .feed-ly-compact-header {
+        display: flex;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+      .feed-ly-badge-dot {
+        width: 8px;
+        height: 8px;
+        background: #1d9bf0;
+        border-radius: 50%;
+        margin-right: 8px;
+      }
+      .feed-ly-compact-title {
+        font-weight: 600;
+        font-size: 15px;
+        color: #0f1419;
+      }
+      .feed-ly-compact-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 12px;
+      }
+      .feed-ly-compact-tag {
+        background: rgba(29, 155, 240, 0.2);
+        color: #1d9bf0;
+        padding: 4px 8px;
+        border-radius: 16px;
+        font-size: 12px;
+        font-weight: 500;
+      }
+      .feed-ly-more-tag {
+        color: #536471;
+        font-size: 12px;
+      }
+      .feed-ly-compact-button {
+        background: #1d9bf0;
+        color: white;
+        border: none;
+        border-radius: 20px;
+        padding: 6px 16px;
+        font-weight: 600;
+        font-size: 14px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.2s;
+      }
+      .feed-ly-compact-button:hover {
+        background: #1a8cd8;
+      }
+      .feed-ly-button-text {
+        margin-right: 4px;
+      }
+      .feed-ly-button-icon {
+        font-size: 16px;
+      }
+      .feed-ly-fade-in {
+        animation: feedlyFadeIn 0.3s ease forwards;
+      }
+      @keyframes feedlyFadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(-10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      /* Dark mode support */
+      body.twitter-night .feed-ly-compact,
+      .dark .feed-ly-compact {
+        background: rgba(29, 155, 240, 0.15);
+        border-color: rgba(29, 155, 240, 0.3);
+      }
+      body.twitter-night .feed-ly-compact-title,
+      .dark .feed-ly-compact-title {
+        color: #e7e9ea;
+      }
+    `
+    document.head.appendChild(style)
+    console.log("✅ [Styles] CSS manually injected as fallback")
+  }
+}
+
+// Initialize debug utilities
+function initDebugUtils() {
+  console.log("🛠️ [Debug] Initializing debug utilities")
+
+  window.__feedlyDebug = {
+    // Force reload of all posts
+    forceReload: () => {
+      console.log("🔄 [Debug] Force reloading all posts")
+
+      // Clear caches
+      processedPosts.clear()
+
+      // Verify user categories
+      verifyUserCategories()
+
+      // Reprocess posts from feed
+      const isTwitter =
+        window.location.hostname.includes("twitter.com") ||
+        window.location.hostname.includes("x.com")
+      const platform = isTwitter ? "TWITTER" : "LINKEDIN"
+
+      const posts = document.querySelectorAll(FEED_SELECTORS[platform].POST)
+      console.log(`🔍 [Debug] Found ${posts.length} posts to reprocess`)
+
+      posts.forEach((post) => {
+        ContentFilterInstance.processPost(post)
+      })
+
+      return `Reprocessed ${posts.length} posts`
+    },
+
+    // Inspect a specific post
+    inspectPost: (selector: string | Element) => {
+      console.log("🔍 [Debug] Inspecting post")
+
+      let element: Element | null = null
+
+      if (typeof selector === "string") {
+        element = document.querySelector(selector)
+      } else if (selector instanceof Element) {
+        element = selector
+      }
+
+      if (!element) {
+        console.error("❌ [Debug] No element found with selector:", selector)
+        return "No element found"
+      }
+
+      // Get the post text
+      const isTwitter =
+        window.location.hostname.includes("twitter.com") ||
+        window.location.hostname.includes("x.com")
+
+      let postText = ""
+
+      try {
+        if (isTwitter) {
+          const tweetTextElement = element.querySelector(
+            '[data-testid="tweetText"]'
+          )
+          postText = tweetTextElement?.textContent || element.textContent || ""
+        } else {
+          const textElement = element.querySelector(
+            ".feed-shared-update-v2__description, .update-components-text"
+          )
+          postText = textElement?.textContent || element.textContent || ""
+        }
+
+        console.log(
+          `📝 [Debug] Post text: "${postText.substring(0, 200)}${postText.length > 200 ? "..." : ""}"`
+        )
+
+        // Check if we have cached results
+        const postHash = createPostHash({ text: postText })
+
+        if (processedPosts.has(postHash)) {
+          const cachedResult = processedPosts.get(postHash)
+          console.log("🔄 [Debug] Found cached result:", cachedResult)
+        }
+
+        // Process this post now
+        ContentFilterInstance.processPost(element)
+
+        return "Post inspection complete - check console for details"
+      } catch (error) {
+        console.error("❌ [Debug] Error inspecting post:", error)
+        return "Error inspecting post"
+      }
+    },
+
+    // Log current state
+    logState: () => {
+      console.log("📊 [Debug] Current state:")
+
+      // Check if extension is enabled
+      storage.get("enabled").then((enabled) => {
+        console.log(`🔌 Extension enabled: ${enabled ? "YES" : "NO"}`)
+      })
+
+      // Check categories
+      storage.get("user-categories").then((categories) => {
+        console.log("📋 Categories:", categories)
+      })
+
+      // Check API key
+      storage.get("openai-api-key").then((apiKey) => {
+        console.log(`🔑 API key set: ${apiKey ? "YES" : "NO"}`)
+      })
+
+      return "State logged to console"
+    },
+
+    // Explain how to use the filter
+    explainFilter: () => {
+      console.log(
+        "🔍 FEEDLY FILTER DEBUGGING HELP 🔍\n\n" +
+          "Available commands:\n" +
+          "- window.__feedlyDebug.forceReload() - Reprocess all posts in the feed\n" +
+          "- window.__feedlyDebug.inspectPost(element) - Inspect a specific post (pass a selector or element)\n" +
+          "- window.__feedlyDebug.logState() - Log current extension state\n" +
+          "- window.__feedlyDebug.explainFilter() - Show this help message\n\n" +
+          "Common issues:\n" +
+          "1. Make sure the extension is enabled (check with logState())\n" +
+          "2. Verify you have categories set to exclude (check with logState())\n" +
+          "3. For Twitter, try clicking on a post to expand it, then use inspectPost()\n" +
+          "4. If posts aren't being filtered, try forceReload()\n" +
+          "5. Check the console for any error messages\n\n" +
+          "CURRENT MODE: Advanced LLM Classification\n" +
+          "This extension uses sophisticated AI models to classify content without relying on\n" +
+          "simple keyword matching. Each post is analyzed by a large language model to determine\n" +
+          "its categories based on the full context and content.\n\n" +
+          "For official government accounts like The White House, content is automatically\n" +
+          "categorized as POLITICS regardless of the specific content.\n\n" +
+          "For more help, visit the extension options page."
+      )
+
+      return "Help information logged to console"
+    }
+  }
+
+  console.log(
+    "✅ [Debug] Debug utilities initialized - use window.__feedlyDebug to access"
+  )
 }
 
 // Replace startObserving() with initializeExtension() at the end of the file
