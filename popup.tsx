@@ -8,6 +8,7 @@ import { Input } from "./components/ui/input"
 import { Logo } from "./components/ui/logo"
 import { Switch } from "./components/ui/switch"
 import { useDebounce } from "./hooks/useDebounce"
+import { CategorizeDemo } from "./popup/categorize-demo"
 
 import "./style.css"
 
@@ -155,6 +156,8 @@ function IndexPopup() {
   const [categoriesDirty, setCategoriesDirty] = useState(false)
   // Add a flag to track if enabled state has been modified by user actions
   const [enabledDirty, setEnabledDirty] = useState(false)
+  // Add state for active tab
+  const [activeTab, setActiveTab] = useState<"settings" | "demo">("settings")
 
   // Extract loadState function from useEffect to make it reusable
   const loadState = async () => {
@@ -723,9 +726,31 @@ function IndexPopup() {
         </div>
       </div>
 
+      {/* Tabs */}
+      <div className="flex border-b">
+        <button
+          className={`flex-1 py-2 text-sm font-medium ${
+            activeTab === "settings"
+              ? "text-primary border-b-2 border-primary"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+          onClick={() => setActiveTab("settings")}>
+          Settings
+        </button>
+        <button
+          className={`flex-1 py-2 text-sm font-medium ${
+            activeTab === "demo"
+              ? "text-primary border-b-2 border-primary"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+          onClick={() => setActiveTab("demo")}>
+          Message Demo
+        </button>
+      </div>
+
       {/* Content */}
       <div className="p-6 space-y-6">
-        {isLoading ? (
+        {isLoading && activeTab === "settings" ? (
           <div className="flex items-center justify-center h-40">
             <div className="text-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground mx-auto mb-2"></div>
@@ -734,7 +759,7 @@ function IndexPopup() {
               </p>
             </div>
           </div>
-        ) : (
+        ) : activeTab === "settings" ? (
           <>
             {/* Enable/Disable Switch */}
             <div className="flex items-center justify-between">
@@ -797,54 +822,30 @@ function IndexPopup() {
               <div className="mt-2 space-y-1">
                 <div>
                   <span className="font-medium">Status:</span> Categories{" "}
-                  {categories.include && categories.exclude
-                    ? "loaded"
-                    : "missing"}
+                  {categoriesDirty ? "modified" : "unchanged"}, Enabled{" "}
+                  {enabledDirty ? "modified" : "unchanged"}
                 </div>
                 <div>
-                  <span className="font-medium">Storage area:</span>{" "}
-                  {storage.area}
+                  <span className="font-medium">API Key:</span>{" "}
+                  {apiKeyStatus === "set" ? "Configured ✓" : "Not Set ✗"}
                 </div>
-                <div>
-                  <span className="font-medium">Render key:</span> {renderKey}
-                </div>
+                {debugStatus && (
+                  <div className="text-blue-600 font-medium">{debugStatus}</div>
+                )}
               </div>
-            </div>
 
-            {/* API Key Status */}
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="text-sm font-medium text-foreground">
-                  API Key
-                </span>
-                <p className="text-xs text-muted-foreground">
-                  OpenAI API configuration
-                </p>
-              </div>
-              <span
-                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                  apiKeyStatus === "set"
-                    ? "bg-green-100 text-green-800"
-                    : "bg-destructive/10 text-destructive"
-                }`}>
-                {apiKeyStatus === "set" ? "Configured" : "Not Set"}
-              </span>
-            </div>
-
-            {/* At the bottom, add a reset categories button */}
-            <div className="pt-2 mt-4 border-t">
-              <div className="flex flex-col space-y-2">
-                <div className="flex justify-between items-center">
+              {/* Debug Actions */}
+              <div className="mt-3 space-y-2">
+                <div className="flex justify-between">
                   <button
                     onClick={resetCategories}
-                    className="text-xs text-muted-foreground hover:text-destructive transition-colors">
+                    className="text-xs text-muted-foreground hover:text-primary transition-colors">
                     Reset Categories
                   </button>
-
-                  <div className="flex items-center">
-                    {debugStatus && (
-                      <span className="text-xs mr-2 text-muted-foreground">
-                        {debugStatus}
+                  <div className="flex space-x-2">
+                    {isLoading && (
+                      <span className="text-xs text-muted-foreground">
+                        Loading...
                       </span>
                     )}
                     <button
@@ -871,6 +872,9 @@ function IndexPopup() {
               </div>
             </div>
           </>
+        ) : (
+          // Demo Tab Content
+          <CategorizeDemo />
         )}
       </div>
 

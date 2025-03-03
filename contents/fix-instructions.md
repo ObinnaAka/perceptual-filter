@@ -59,7 +59,7 @@ const categories = response.categories.map((cat) => cat.toUpperCase())
 const tldr = response.tldr || "No summary available"
 ```
 
-## Alternative Solution
+## Alternative Solution 1: Using a Helper Function
 
 If you prefer a more robust solution, you can create a helper function that wraps `sendToBackground` and handles errors:
 
@@ -128,3 +128,63 @@ const response = await safeSendToBackground({
 // No need for additional error handling since safeSendToBackground guarantees a valid response
 const categories = response.categories.map((cat) => cat.toUpperCase())
 ```
+
+## Alternative Solution 2: Using Plasmo's Message Handler System
+
+Plasmo provides a robust message handling system that can be more reliable. Here's how to implement it:
+
+### 1. Update your background script handler
+
+Make sure your background script handler always returns a valid response:
+
+```typescript
+// In background/messages/categorize-post.ts
+const handler: PlasmoMessaging.MessageHandler = async (req, res) => {
+  try {
+    const { text, userCategories, authorName } = req.body
+
+    // Your existing code...
+
+    const result = await categorizeWithGPT4(text, userCategories, authorName)
+
+    // Ensure we always return a valid response with categories
+    res.send({
+      categories: result.categories || ["ERROR"],
+      confidence: result.confidence || 0,
+      tldr: result.tldr || "No summary available"
+    })
+  } catch (error) {
+    console.error("Error in categorize-post handler:", error)
+    // Send a fallback response on error
+    res.send({
+      categories: ["ERROR"],
+      confidence: 0,
+      tldr: "Error processing content"
+    })
+  }
+}
+```
+
+### 2. Use the message listener in your content script
+
+Plasmo's message listener system is already set up in your content script:
+
+```typescript
+// This is already in your code
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === "storage-update") {
+    // Your existing code...
+  }
+})
+```
+
+This ensures that messages from the background script are properly received and handled.
+
+## Debugging Tips
+
+If you continue to experience issues with messaging:
+
+1. Check the background script console for errors (in the extension's developer tools)
+2. Verify that the background script is properly registered in your `manifest.json`
+3. Make sure your content script is running in the correct context
+4. Add more detailed logging to track the flow of messages between content and background scripts

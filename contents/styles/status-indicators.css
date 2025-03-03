@@ -1,0 +1,65 @@
+/* Status indicators */
+.feed-ly-status-indicator {
+  position: absolute !important;
+  top: 10px !important;
+  right: 10px !important;
+  width: 12px !important;
+  height: 12px !important;
+  border-radius: 50% !important;
+  pointer-events: none !important;
+  transform: translate(50%, -50%) !important;
+  z-index: 10000 !important;
+  transition:
+    background-color 0.3s ease,
+    opacity 0.4s ease,
+    transform 0.3s ease !important;
+  box-shadow: 0 0 0 2px white !important;
+  color: transparent !important; /* Hide the icon text but keep it for accessibility */
+  font-size: 0 !important; /* Reduce font size to ensure no text shows */
+  text-align: center !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  overflow: hidden !important;
+}
+
+.feed-ly-status-processing {
+  background-color: #ffb01f !important;
+  animation: feed-ly-pulse 1.5s infinite !important;
+}
+
+.feed-ly-status-processed {
+  background-color: #1fc58f !important;
+  opacity: 0.8 !important;
+}
+
+.feed-ly-status-filtered {
+  background-color: #1f90ff !important;
+  opacity: 0.8 !important;
+}
+
+.feed-ly-status-blocked {
+  background-color: #ff5c5c !important;
+  opacity: 0.9 !important;
+}
+
+/* This class may conflict with the unmuting from the cover element */
+.feed-ly-status-unmuting {
+  opacity: 0 !important;
+  transform: translate(50%, -50%) scale(0.7) !important;
+  transition:
+    opacity 0.4s ease,
+    transform 0.4s ease !important;
+}
+
+@keyframes feed-ly-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(29, 155, 240, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(29, 155, 240, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(29, 155, 240, 0);
+  }
+}

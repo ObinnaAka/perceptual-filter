@@ -5,8 +5,14 @@ import { createRoot } from "react-dom/client"
 import { sendToBackground } from "@plasmohq/messaging"
 import { Storage } from "@plasmohq/storage"
 
-// Import our CSS
-import "./social-post-blocker.css"
+// Import CSS files
+import "./styles/social-post-blocker.css"
+import "./styles/feed-ly-cover.css"
+import "./styles/compact-mode.css"
+import "./styles/status-indicators.css"
+
+// Import our message listener
+import { initializeMessageListener } from "./messaging"
 
 // Add TypeScript interface extensions for the window object
 declare global {
@@ -76,8 +82,6 @@ const FeedlyCoverElement: React.FC<{
   const [isVisible, setIsVisible] = React.useState(false)
   const [isUnmuting, setIsUnmuting] = React.useState(false)
   const containerRef = React.useRef<HTMLDivElement>(null)
-  // Always use compact mode
-  const [isCompact, setIsCompact] = React.useState(true)
 
   React.useEffect(() => {
     // Trigger fade-in animation after mount
@@ -649,25 +653,6 @@ function addStatusIndicator(
     const indicator = document.createElement("div")
     indicator.className = `feed-ly-status-indicator feed-ly-status-${status} feed-ly-status-new`
 
-    // Add the appropriate icon based on status
-    let icon = ""
-    switch (status) {
-      case "processing":
-        icon = "⏳" // Hourglass
-        break
-      case "processed":
-        icon = "✓" // Checkmark
-        break
-      case "filtered":
-        icon = "⚠️" // Warning
-        break
-      case "blocked":
-        icon = "✕" // X mark
-        break
-    }
-
-    indicator.textContent = icon
-
     // Add tooltip title
     let title = ""
     switch (status) {
@@ -1008,20 +993,60 @@ export function ContentFilterProvider({ children }) {
       }
 
       // Get post categorization
-      const response = await sendToBackground({
-        name: "categorize-post",
-        body: {
-          text: postText,
-          authorName: data.actorName,
-          userCategories: {
-            include: userCategories?.include || [],
-            exclude: userCategories?.exclude || []
-          }
+      let response
+      try {
+        // Check if we have a cached result from the background script
+        const debugObj = window.__feedlyDebug as any
+        if (
+          debugObj &&
+          debugObj.categorizeCache &&
+          debugObj.categorizeCache.has(postHash)
+        ) {
+          console.log(
+            `🔍 [Post ${postHash.substring(0, 8)}] Using cached categorization result`
+          )
+          response = debugObj.categorizeCache.get(postHash)
+        } else {
+          // Send request to background script
+          response = await sendToBackground({
+            name: "categorize-post",
+            body: {
+              text: postText,
+              authorName: data.actorName,
+              userCategories: {
+                include: userCategories?.include || [],
+                exclude: userCategories?.exclude || []
+              }
+            }
+          })
         }
-      })
+
+        // Add error handling to check if response and response.categories exist
+        if (!response || !response.categories) {
+          console.error(
+            `❌ [Post ${postHash.substring(0, 8)}] Error processing: Invalid response from background script`,
+            response
+          )
+          // Remove processing indicator on error
+          removeStatusIndicator(container)
+          // Remove the processing attribute on error
+          removeProcessingAttribute(container)
+          return
+        }
+      } catch (error) {
+        console.error(
+          `❌ [Post ${postHash.substring(0, 8)}] Error processing:`,
+          error
+        )
+        // Remove processing indicator on error
+        removeStatusIndicator(container)
+        // Remove the processing attribute on error
+        removeProcessingAttribute(container)
+        return
+      }
 
       const categories = response.categories.map((cat) => cat.toUpperCase())
-      const tldr = response.tldr
+      const tldr = response.tldr || "No summary available"
 
       // Check if post should be blocked based on exclude categories
       const matchingExcludeCategories = []
@@ -1253,7 +1278,7 @@ export function useContentFilter() {
   return React.useContext(ContentFilterContext)
 }
 
-// Update startObserving to use the singleton
+// * Update startObserving to use the singleton
 function startObserving() {
   console.log("👀 [Observer] Starting feed observation")
   const isTwitter =
@@ -1392,152 +1417,7 @@ function startObserving() {
   }
 }
 
-// Replace the storage.watch implementation with a message listener
-// Update storage watch handlers
-// storage.watch({
-//   "user-categories": (newValue) => {
-//     console.log("🔄 [Categories] Update triggered from storage", newValue)
-//     // Type guard to check if newValue has the expected structure
-//     if (newValue && typeof newValue === "object") {
-//       const categories = newValue as unknown as {
-//         include?: string[]
-//         exclude?: string[]
-//       }
-
-//       console.log("🔄 [Categories] Updated:")
-//       if (categories.include && Array.isArray(categories.include)) {
-//         console.log(
-//           `  • Include (${categories.include.length}): ${categories.include.length ? categories.include.join(", ") : "(none)"}`
-//         )
-//       }
-
-//       if (categories.exclude && Array.isArray(categories.exclude)) {
-//         console.log(
-//           `  • Exclude (${categories.exclude.length}): ${categories.exclude.length ? categories.exclude.join(", ") : "(none)"}`
-//         )
-//       }
-//     }
-//   },
-//   "categories-updated": (newValue) => {
-//     // Update the last categories update timestamp
-//     const previousUpdate = lastCategoriesUpdate
-//     lastCategoriesUpdate = Date.now()
-
-//     console.log(
-//       "🔄 [Categories] Update triggered from popup:",
-//       `Previous update: ${new Date(previousUpdate).toLocaleTimeString()}, ` +
-//         `New update: ${new Date(lastCategoriesUpdate).toLocaleTimeString()}`
-//     )
-
-//     // Set the dirty flag to indicate categories have been updated
-//     categoriesUpdatedDirty = true
-
-//     // Show the status indicator
-//     showCategoryUpdateStatus("Categories updated - reprocessing posts")
-
-//     // Force a refresh of categories from storage
-//     verifyUserCategories().then((categories) => {
-//       console.log("🔄 [Categories] Refreshed from storage:", categories)
-
-//       // Clear caches
-//       processedPosts.clear()
-//       apiCache.clear()
-
-//       // Reprocess all posts
-//       const platform =
-//         window.location.hostname.includes("twitter.com") ||
-//         window.location.hostname.includes("x.com")
-//           ? "TWITTER"
-//           : "LINKEDIN"
-//       const feed = document.querySelector(FEED_SELECTORS[platform].FEED)
-//       if (feed) {
-//         const allPosts = feed.querySelectorAll(FEED_SELECTORS[platform].POST)
-//         console.log(
-//           `🔄 [Feed] Reprocessing ${allPosts.length} posts due to category update trigger`
-//         )
-
-//         // Immediately reprocess visible posts
-//         const reprocessVisiblePosts = () => {
-//           console.log(
-//             "🔍 [Feed] Checking for visible posts to reprocess immediately"
-//           )
-//           let visiblePostsCount = 0
-
-//           allPosts.forEach((post) => {
-//             // Check if post is in viewport
-//             const rect = post.getBoundingClientRect()
-//             const isVisible =
-//               rect.top >= -rect.height &&
-//               rect.left >= -rect.width &&
-//               rect.bottom <=
-//                 (window.innerHeight || document.documentElement.clientHeight) +
-//                   rect.height &&
-//               rect.right <=
-//                 (window.innerWidth || document.documentElement.clientWidth) +
-//                   rect.width
-
-//             if (isVisible) {
-//               visiblePostsCount++
-//               // Force immediate reprocessing by removing from cache
-//               const postText = post.textContent || ""
-//               const postHash = createPostHash({ text: postText })
-//               if (processedPosts.has(postHash)) {
-//                 processedPosts.delete(postHash)
-//               }
-//               // Process the post
-//               ContentFilterInstance.processPost(post)
-//             }
-//           })
-
-//           console.log(
-//             `🔄 [Feed] Immediately reprocessed ${visiblePostsCount} visible posts`
-//           )
-
-//           // Update the status indicator if all visible posts have been reprocessed
-//           if (visiblePostsCount > 0) {
-//             showCategoryUpdateStatus(
-//               `Reprocessed ${visiblePostsCount} visible posts - scroll to update more`,
-//               5000
-//             )
-//           }
-//         }
-
-//         // Run immediately
-//         reprocessVisiblePosts()
-
-//         // Also process all posts normally (this will handle posts as they scroll into view)
-//         allPosts.forEach((post) => ContentFilterInstance.processPost(post))
-//       }
-//     })
-//   },
-//   enabled: (newEnabled) => {
-//     // Cast the newValue to boolean explicitly
-//     const enabled = Boolean(newEnabled)
-//     console.log(`⚙️ [State] Filter ${enabled ? "ENABLED ✅" : "DISABLED ❌"}`)
-
-//     // Clear processed posts cache and reprocess
-//     console.log("🧹 [Cache] Cleared due to enabled state change")
-//     processedPosts.clear()
-
-//     const platform =
-//       window.location.hostname.includes("twitter.com") ||
-//       window.location.hostname.includes("x.com")
-//         ? "TWITTER"
-//         : "LINKEDIN"
-//     const feed = document.querySelector(FEED_SELECTORS[platform].FEED)
-//     if (newEnabled && feed) {
-//       const allPosts = feed.querySelectorAll(FEED_SELECTORS[platform].POST)
-//       console.log(
-//         `🔄 [Feed] Reprocessing ${allPosts.length} posts due to enabled state change`
-//       )
-//       allPosts.forEach((post) => ContentFilterInstance.processPost(post))
-//     } else {
-//       console.log("🔄 [Feed] Filter disabled - no posts will be blocked")
-//     }
-//   }
-// })
-
-// Add a message listener to handle storage updates from the background script
+// * Update onMessage listener to use the singleton
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "storage-update") {
     console.log(
@@ -1599,7 +1479,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 })
 
-// Update verifyUserCategories to be compatible with Set-based categories
+// * Update verifyUserCategories to be compatible with Set-based categories
 async function verifyUserCategories() {
   console.log("🔍 [Categories] Verifying configuration...")
 
@@ -1672,9 +1552,13 @@ async function verifyUserCategories() {
   }
 }
 
-// Initialize the extension
+// * Initialize the extension
 async function initializeExtension() {
   console.log("🚀 [Initialization] Starting extension initialization")
+
+  // Initialize the message listener for background script communication
+  initializeMessageListener()
+  console.log("🎧 [Initialization] Message listener initialized")
 
   // Check if extension is enabled
   const enabled = await storage.get<boolean>("enabled")
@@ -1780,7 +1664,7 @@ async function initializeExtension() {
   setupCategoryUpdateScrollCheck()
 }
 
-// Function to verify CSS is properly loaded
+// * Function to verify CSS is properly loaded
 function verifyCssLoaded() {
   console.log("🔍 [Styles] Checking if CSS is properly loaded...")
 
@@ -1922,7 +1806,7 @@ function verifyCssLoaded() {
   }
 }
 
-// Initialize debug utilities
+// * Initialize debug utilities
 function initDebugUtils() {
   console.log("🛠️ [Debug] Initializing debug utilities")
 
@@ -2261,14 +2145,14 @@ function initDebugUtils() {
   )
 }
 
-// Replace startObserving() with initializeExtension() at the end of the file
+// * Replace startObserving() with initializeExtension() at the end of the file
 initializeExtension()
 
-// Track if categories have been updated but not all posts have been reprocessed
+// * Track if categories have been updated but not all posts have been reprocessed
 let categoriesUpdatedDirty = false
 let categoryStatusTimeout: number | null = null
 
-// Function to create and show the category update status indicator
+// * Function to create and show the category update status indicator
 function showCategoryUpdateStatus(message: string, autoHideAfter = 0) {
   // Remove any existing status indicator
   const existingStatus = document.querySelector(".feed-ly-category-status")
@@ -2348,7 +2232,7 @@ function showCategoryUpdateStatus(message: string, autoHideAfter = 0) {
   return statusElement
 }
 
-// Function to hide the category update status indicator
+// * Function to hide the category update status indicator
 function hideCategoryUpdateStatus() {
   console.log("🔔 [Status] Attempting to hide category status indicator")
 
@@ -2381,7 +2265,7 @@ function hideCategoryUpdateStatus() {
   }
 }
 
-// Function to check if all posts have been processed after scrolling
+// * Function to check if all posts have been processed after scrolling
 function setupCategoryUpdateScrollCheck() {
   let scrollTimeout: number | null = null
 
@@ -2442,10 +2326,10 @@ function setupCategoryUpdateScrollCheck() {
   })
 }
 
-// Add these variables and functions to fix the linter errors
+// * Add these variables and functions to fix the linter errors
 let categoriesDirty = false
 
-// Function to reprocess visible posts
+// * Function to reprocess visible posts
 const reprocessVisiblePosts = () => {
   console.log("🔍 [Feed] Checking for visible posts to reprocess immediately")
 
@@ -2501,3 +2385,9 @@ const reprocessVisiblePosts = () => {
     )
   }
 }
+
+storage.watch({
+  "user-categories": (newValue) => {
+    console.log("🔄 [Categories] Update received:", newValue)
+  }
+})
