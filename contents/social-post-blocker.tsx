@@ -68,9 +68,20 @@ interface PostData {
   tldr?: string
 }
 
-// Create a hash from post data to use as identifier
+/**
+ * Creates a unique hash from post data to use as identifier.
+ * @param data The post data containing text and actor name
+ * @returns A string hash that uniquely identifies the post
+ */
 const createPostHash = (data: PostData): string => {
-  return `${data.actorName}-${data.text?.slice(0, 150)}` // Using first 150 chars of text should be enough
+  try {
+    // Using first 150 chars of text should be enough for uniqueness
+    return `${data.actorName || ""}-${data.text?.slice(0, 150) || ""}`
+  } catch (error) {
+    console.error("❌ Error creating post hash:", error)
+    // Return a fallback hash with timestamp to avoid errors
+    return `error-${Date.now()}`
+  }
 }
 
 // Create a new component with scoped class names
@@ -132,18 +143,30 @@ const FeedlyCoverElement: React.FC<{
   )
 }
 
-// Enhance the applyPostCover function with better debugging
+/**
+ * Applies a cover overlay to a post that should be blocked.
+ * @param container The post container element
+ * @param postHash The unique hash identifying the post
+ * @param categories The categories assigned to the post
+ * @param tldr The summary of the post
+ * @param matchedCategories The categories that matched filtering criteria
+ * @returns Promise<void>
+ */
 async function applyPostCover(
   container: Element,
   postHash: string,
   categories: string[],
   tldr: string,
   matchedCategories: string[] = []
-) {
-  // Check if post is already unmuted
-  const unmutedPosts = (await storage.get<string[]>("unmutedPosts")) || []
+): Promise<void> {
+  try {
+    // Check if post is already unmuted
+    const unmutedPosts = (await storage.get<string[]>("unmutedPosts")) || []
 
-  if (!unmutedPosts.includes(postHash)) {
+    if (unmutedPosts.includes(postHash)) {
+      return
+    }
+
     // First, check if container is still in the DOM
     if (!document.body.contains(container)) {
       return
@@ -439,6 +462,8 @@ async function applyPostCover(
     } catch (error) {
       console.error(`❌ [UI] Error rendering cover:`, error)
     }
+  } catch (error) {
+    console.error(`❌ Error applying post cover:`, error)
   }
 }
 
@@ -566,116 +591,140 @@ const ContentFilterContext = React.createContext<{
   processPost: async () => {}
 })
 
-// Function to add status indicator to a post
+/**
+ * Adds or updates a status indicator on a post.
+ * @param container The post container element
+ * @param status The status to display (processing, processed, filtered, or blocked)
+ * @returns The status indicator element
+ */
 function addStatusIndicator(
   container: Element,
   status: "processing" | "processed" | "filtered" | "blocked"
-) {
-  // Check if multiple indicators exist and remove extras
-  const allIndicators = container.querySelectorAll(".feed-ly-status-indicator")
-  if (allIndicators.length > 1) {
-    // Keep only the first indicator and remove the rest
-    for (let i = 1; i < allIndicators.length; i++) {
-      allIndicators[i].remove()
-    }
-  }
-
-  // Check if an indicator already exists
-  const existingIndicator = container.querySelector(".feed-ly-status-indicator")
-
-  if (existingIndicator) {
-    // If indicator already exists with the same status, do nothing
-    if (existingIndicator.classList.contains(`feed-ly-status-${status}`)) {
-      return existingIndicator
+): HTMLElement | null {
+  try {
+    // Check if multiple indicators exist and remove extras
+    const allIndicators = container.querySelectorAll(
+      ".feed-ly-status-indicator"
+    )
+    if (allIndicators.length > 1) {
+      // Keep only the first indicator and remove the rest
+      for (let i = 1; i < allIndicators.length; i++) {
+        allIndicators[i].remove()
+      }
     }
 
-    // If transitioning from processing to a final state, update existing indicator
-    // This creates a smoother transition
-    existingIndicator.classList.remove(
-      "feed-ly-status-processing",
-      "feed-ly-status-processed",
-      "feed-ly-status-filtered",
-      "feed-ly-status-blocked"
+    // Check if an indicator already exists
+    const existingIndicator = container.querySelector(
+      ".feed-ly-status-indicator"
     )
 
-    // Force a DOM reflow to ensure the transition is visible
-    void (existingIndicator as HTMLElement).offsetWidth
+    if (existingIndicator) {
+      // If indicator already exists with the same status, do nothing
+      if (existingIndicator.classList.contains(`feed-ly-status-${status}`)) {
+        return existingIndicator as HTMLElement
+      }
 
-    existingIndicator.classList.add(`feed-ly-status-${status}`)
+      // If transitioning from processing to a final state, update existing indicator
+      // This creates a smoother transition
+      existingIndicator.classList.remove(
+        "feed-ly-status-processing",
+        "feed-ly-status-processed",
+        "feed-ly-status-filtered",
+        "feed-ly-status-blocked"
+      )
 
-    // Update the appropriate icon based on status
-    let icon = ""
-    switch (status) {
-      case "processing":
-        icon = "⏳" // Hourglass
-        break
-      case "processed":
-        icon = "✓" // Checkmark
-        break
-      case "filtered":
-        icon = "⚠️" // Warning
-        break
-      case "blocked":
-        icon = "✕" // X mark
-        break
+      // Force a DOM reflow to ensure the transition is visible
+      void (existingIndicator as HTMLElement).offsetWidth
+
+      existingIndicator.classList.add(`feed-ly-status-${status}`)
+
+      // Update the appropriate icon based on status
+      let icon = ""
+      switch (status) {
+        case "processing":
+          icon = "⏳" // Hourglass
+          break
+        case "processed":
+          icon = "✓" // Checkmark
+          break
+        case "filtered":
+          icon = "⚠️" // Warning
+          break
+        case "blocked":
+          icon = "✕" // X mark
+          break
+      }
+
+      existingIndicator.textContent = icon
+
+      // Update tooltip title
+      let title = ""
+      switch (status) {
+        case "processing":
+          title = "Processing post..."
+          break
+        case "processed":
+          title = "Post processed and allowed"
+          break
+        case "filtered":
+          title = "Post filtered"
+          break
+        case "blocked":
+          title = "Post blocked"
+          break
+      }
+      // Cast to HTMLElement to access title attribute
+      ;(existingIndicator as HTMLElement).title = title
+
+      return existingIndicator as HTMLElement
+    } else {
+      // Create a new indicator
+      const indicator = document.createElement("div")
+      indicator.className = `feed-ly-status-indicator feed-ly-status-${status} feed-ly-status-new`
+
+      // Add tooltip title
+      let title = ""
+      switch (status) {
+        case "processing":
+          title = "Processing post..."
+          break
+        case "processed":
+          title = "Post processed and allowed"
+          break
+        case "filtered":
+          title = "Post filtered"
+          break
+        case "blocked":
+          title = "Post blocked"
+          break
+      }
+      indicator.title = title
+
+      // Append to container
+      container.appendChild(indicator)
+
+      return indicator
     }
-
-    existingIndicator.textContent = icon
-
-    // Update tooltip title
-    let title = ""
-    switch (status) {
-      case "processing":
-        title = "Processing post..."
-        break
-      case "processed":
-        title = "Post processed and allowed"
-        break
-      case "filtered":
-        title = "Post filtered"
-        break
-      case "blocked":
-        title = "Post blocked"
-        break
-    }
-    // Cast to HTMLElement to access title attribute
-    ;(existingIndicator as HTMLElement).title = title
-
-    return existingIndicator
-  } else {
-    // Create a new indicator
-    const indicator = document.createElement("div")
-    indicator.className = `feed-ly-status-indicator feed-ly-status-${status} feed-ly-status-new`
-
-    // Add tooltip title
-    let title = ""
-    switch (status) {
-      case "processing":
-        title = "Processing post..."
-        break
-      case "processed":
-        title = "Post processed and allowed"
-        break
-      case "filtered":
-        title = "Post filtered"
-        break
-      case "blocked":
-        title = "Post blocked"
-        break
-    }
-    indicator.title = title
-
-    // Append to container
-    container.appendChild(indicator)
-
-    return indicator
+  } catch (error) {
+    console.error("❌ Error adding status indicator:", error)
+    return null
   }
 }
 
-// Function to remove status indicator from a post
-function removeStatusIndicator(container: Element) {
-  const existingIndicator = container.querySelector(".feed-ly-status-indicator")
-  if (existingIndicator) {
+/**
+ * Removes the status indicator from a post with a smooth fade-out animation.
+ * @param container The post container element
+ * @returns void
+ */
+function removeStatusIndicator(container: Element): void {
+  try {
+    const existingIndicator = container.querySelector(
+      ".feed-ly-status-indicator"
+    )
+    if (!existingIndicator) {
+      return
+    }
+
     // Add a class to trigger the fade-out animation
     existingIndicator.classList.add("feed-ly-unmuting")
 
@@ -685,19 +734,40 @@ function removeStatusIndicator(container: Element) {
         existingIndicator.remove()
       }
     }, 400) // Match the duration in CSS (.feed-ly-unmuting animation)
+  } catch (error) {
+    console.error("❌ Error removing status indicator:", error)
   }
 }
 
-function removeProcessingAttribute(container: Element) {
-  if (container.hasAttribute("data-feedlyprocessing")) {
-    container.removeAttribute("data-feedlyprocessing")
+/**
+ * Removes the processing attribute from a post container.
+ * This allows the post to be processed again in the future.
+ * @param container The post container element
+ * @returns void
+ */
+function removeProcessingAttribute(container: Element): void {
+  try {
+    if (container.hasAttribute("data-feedlyprocessing")) {
+      container.removeAttribute("data-feedlyprocessing")
+    }
+  } catch (error) {
+    console.error("❌ Error removing processing attribute:", error)
   }
 }
 
-// Function to remove cover overlay if it exists
-function removePostCover(container: Element) {
-  const existingCover = container.querySelector(".feed-ly-cover")
-  if (existingCover) {
+/**
+ * Removes the cover overlay from a post when it no longer needs to be blocked.
+ * Also restores original styling to the container element.
+ * @param container The post container element
+ * @returns void
+ */
+function removePostCover(container: Element): void {
+  try {
+    const existingCover = container.querySelector(".feed-ly-cover")
+    if (!existingCover) {
+      return
+    }
+
     console.log(
       "🔄 Removing existing cover as post no longer needs to be blocked"
     )
@@ -710,6 +780,8 @@ function removePostCover(container: Element) {
       // A more robust approach would store the original position
       htmlContainer.style.position = ""
     }
+  } catch (error) {
+    console.error("❌ Error removing post cover:", error)
   }
 }
 
@@ -2287,63 +2359,80 @@ function setupCategoryUpdateScrollCheck() {
 // * Add these variables and functions to fix the linter errors
 let categoriesDirty = false
 
-// * Function to reprocess visible posts
-const reprocessVisiblePosts = () => {
-  console.log("🔍 [Feed] Checking for visible posts to reprocess immediately")
+/**
+ * Reprocesses all currently visible posts when categories are updated.
+ * Removes posts from the cache and triggers immediate reprocessing.
+ * @returns void
+ */
+const reprocessVisiblePosts = (): void => {
+  try {
+    console.log("🔍 [Feed] Checking for visible posts to reprocess immediately")
 
-  const platform =
-    window.location.hostname.includes("twitter.com") ||
-    window.location.hostname.includes("x.com")
-      ? "TWITTER"
-      : "LINKEDIN"
+    const platform =
+      window.location.hostname.includes("twitter.com") ||
+      window.location.hostname.includes("x.com")
+        ? "TWITTER"
+        : "LINKEDIN"
 
-  const feed = document.querySelector(FEED_SELECTORS[platform].FEED)
-  if (!feed) {
-    console.log("❌ [Feed] Feed not found, cannot reprocess posts")
-    return
-  }
-
-  const allPosts = feed.querySelectorAll(FEED_SELECTORS[platform].POST)
-  let visiblePostsCount = 0
-
-  allPosts.forEach((post) => {
-    // Check if post is in viewport
-    const rect = post.getBoundingClientRect()
-    const isVisible =
-      rect.top >= -rect.height &&
-      rect.left >= -rect.width &&
-      rect.bottom <=
-        (window.innerHeight || document.documentElement.clientHeight) +
-          rect.height &&
-      rect.right <=
-        (window.innerWidth || document.documentElement.clientWidth) + rect.width
-
-    if (isVisible) {
-      visiblePostsCount++
-      // Force immediate reprocessing by removing from cache
-      const postText = post.textContent || ""
-      const postHash = createPostHash({ text: postText })
-      if (processedPosts.has(postHash)) {
-        processedPosts.delete(postHash)
-      }
-      // Process the post
-      ContentFilterInstance.processPost(post)
+    const feed = document.querySelector(FEED_SELECTORS[platform].FEED)
+    if (!feed) {
+      console.log("❌ [Feed] Feed not found, cannot reprocess posts")
+      return
     }
-  })
 
-  console.log(
-    `🔄 [Feed] Immediately reprocessed ${visiblePostsCount} visible posts`
-  )
+    const allPosts = feed.querySelectorAll(FEED_SELECTORS[platform].POST)
+    let visiblePostsCount = 0
 
-  // Update the status indicator if all visible posts have been reprocessed
-  if (visiblePostsCount > 0) {
-    showCategoryUpdateStatus(
-      `Reprocessed ${visiblePostsCount} visible posts - scroll to update more`,
-      5000
+    allPosts.forEach((post) => {
+      // Check if post is in viewport
+      const rect = post.getBoundingClientRect()
+      const isVisible =
+        rect.top >= -rect.height &&
+        rect.left >= -rect.width &&
+        rect.bottom <=
+          (window.innerHeight || document.documentElement.clientHeight) +
+            rect.height &&
+        rect.right <=
+          (window.innerWidth || document.documentElement.clientWidth) +
+            rect.width
+
+      if (isVisible) {
+        visiblePostsCount++
+        // Force immediate reprocessing by removing from cache
+        const postText = post.textContent || ""
+        const postHash = createPostHash({ text: postText })
+        if (processedPosts.has(postHash)) {
+          processedPosts.delete(postHash)
+        }
+        // Process the post
+        ContentFilterInstance.processPost(post)
+      }
+    })
+
+    console.log(
+      `🔄 [Feed] Immediately reprocessed ${visiblePostsCount} visible posts`
     )
+
+    // Update the status indicator if all visible posts have been reprocessed
+    if (visiblePostsCount > 0) {
+      showCategoryUpdateStatus(
+        `Reprocessed ${visiblePostsCount} visible posts - scroll to update more`,
+        5000
+      )
+    }
+  } catch (error) {
+    console.error("❌ Error reprocessing visible posts:", error)
   }
 }
 
+/**
+ * Watch for changes to user categories and trigger reprocessing.
+ * When categories are updated:
+ * 1. Sets categoriesDirty flag to true
+ * 2. Updates lastCategoriesUpdate timestamp
+ * 3. Triggers immediate reprocessing of visible posts
+ * 4. Posts will be refiltered with the new categories
+ */
 storage.watch({
   "user-categories": (newValue) => {
     console.log("🔄 [Categories] Update received:", newValue)
