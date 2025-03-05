@@ -10,6 +10,7 @@ import "./styles/social-post-blocker.css"
 import "./styles/feed-ly-cover.css"
 import "./styles/compact-mode.css"
 import "./styles/status-indicators.css"
+import "./styles/animations.css"
 
 // Import our message listener
 import { initializeMessageListener } from "./messaging"
@@ -86,21 +87,14 @@ const FeedlyCoverElement: React.FC<{
   React.useEffect(() => {
     // Trigger fade-in animation after mount
     const timer = setTimeout(() => setIsVisible(true), 50)
-
-    // We're always using compact mode now, so no need to check container height
-    console.log(`📏 [UI] Using compact mode for all overlays`)
-
     return () => clearTimeout(timer)
   }, [])
 
   const handleUnmute = () => {
-    // Start the unmute animation
     setIsUnmuting(true)
-
-    // Wait for animation to complete before actually unmuting
     setTimeout(() => {
       onUnmute()
-    }, 400) // Match this with the CSS animation duration
+    }, 600) // Increased from 400ms to 600ms to match new animation duration
   }
 
   // Display matched categories if available, otherwise show first three categories
@@ -227,28 +221,27 @@ async function applyPostCover(
 
     coverDiv.className = coverClass
 
-    // Apply more aggressive inline styles with blur effect
+    // Apply base positioning styles
     coverDiv.style.position = "absolute"
     coverDiv.style.top = "0"
     coverDiv.style.right = "0"
     coverDiv.style.bottom = "0"
     coverDiv.style.left = "0"
     coverDiv.style.zIndex = isCellInnerDiv ? "10000" : "9999"
-    coverDiv.style.backgroundColor =
-      hasMedia || isCellInnerDiv
-        ? "rgba(255, 255, 255, 0.4)"
-        : "rgba(255, 255, 255, 0.05)"
-    coverDiv.style.backdropFilter =
-      hasMedia || isCellInnerDiv ? "blur(15px)" : "blur(10px)"
     coverDiv.style.display = "flex"
-    coverDiv.style.justifyContent = "center" // Center horizontally
-    coverDiv.style.alignItems = "flex-start" // Align to top
+    coverDiv.style.justifyContent = "center"
+    coverDiv.style.alignItems = "flex-start"
     coverDiv.style.width = "100%"
     coverDiv.style.height = "100%"
-    coverDiv.style.padding = "16px" // Add some padding
+    coverDiv.style.padding = "16px"
 
     // Add the cover directly to the container
     container.appendChild(coverDiv)
+
+    // Trigger the fade-in animation after a small delay
+    setTimeout(() => {
+      coverDiv.classList.add("feed-ly-visible")
+    }, 50)
 
     // Log positioning information for debugging
     console.log(
