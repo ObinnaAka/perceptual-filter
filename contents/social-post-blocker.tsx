@@ -694,6 +694,25 @@ function removeProcessingAttribute(container: Element) {
   }
 }
 
+// Function to remove cover overlay if it exists
+function removePostCover(container: Element) {
+  const existingCover = container.querySelector(".feed-ly-cover")
+  if (existingCover) {
+    console.log(
+      "🔄 Removing existing cover as post no longer needs to be blocked"
+    )
+    existingCover.remove()
+
+    // Restore original position if needed
+    const htmlContainer = container as HTMLElement
+    if (htmlContainer.style.position === "relative") {
+      // Only reset if we think it was set by our code
+      // A more robust approach would store the original position
+      htmlContainer.style.position = ""
+    }
+  }
+}
+
 // Update the processPost function to add status indicators
 export function ContentFilterProvider({ children }) {
   const storage = new Storage()
@@ -941,6 +960,10 @@ export function ContentFilterProvider({ children }) {
           // Remove the processing attribute
           removeProcessingAttribute(container)
         } else {
+          // Post shouldn't be blocked, remove any existing cover
+          const targetElement = findBestOverlayTarget(container, platform)
+          removePostCover(targetElement)
+
           // Check if the post matches any filtered categories but not enough to block
           const hasFilteredContent = cachedResult.categories.some(
             (cat: string) =>
@@ -1211,6 +1234,9 @@ export function ContentFilterProvider({ children }) {
         // Remove the processing attribute
         removeProcessingAttribute(container)
       } else {
+        // If the post shouldn't be blocked, make sure to remove any existing cover
+        removePostCover(findBestOverlayTarget(container, platform))
+
         // Check if the post matches any filtered categories but not enough to block
         const hasFilteredContent = enhancedCategories.some(
           (cat: string) =>
@@ -2323,5 +2349,8 @@ storage.watch({
     console.log("🔄 [Categories] Update received:", newValue)
 
     categoriesDirty = true
+    lastCategoriesUpdate = Date.now() // Update the timestamp when categories change
+    // Trigger reprocessing of visible posts with new categories
+    reprocessVisiblePosts()
   }
 })
