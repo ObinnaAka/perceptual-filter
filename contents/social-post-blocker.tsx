@@ -58,7 +58,8 @@ const processedPosts = new Map<
 >()
 // Track the last time categories were updated
 let lastCategoriesUpdate = Date.now()
-const storage = new Storage({ area: "local" })
+
+const storage = new Storage()
 
 interface PostData {
   actorName?: string
@@ -276,8 +277,8 @@ async function applyPostCover(
           left: 0 !important;
           z-index: 9999 !important;
           background-color: rgba(255, 255, 255, 0.05) !important;
-          backdrop-filter: blur(10px) !important;
-          -webkit-backdrop-filter: blur(10px) !important;
+          backdrop-filter: blur(15px) !important;
+          -webkit-backdrop-filter: blur(15px) !important;
           padding: 16px !important;
           display: flex !important;
           justify-content: center !important;
@@ -1410,68 +1411,6 @@ function startObserving() {
   }
 }
 
-// * Update onMessage listener to use the singleton
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === "storage-update") {
-    console.log(
-      `🔄 [Categories] Update received via message: ${message.key}`,
-      message.value
-    )
-
-    if (message.key === "user-categories") {
-      const newValue = message.value
-      // Type guard to check if newValue has the expected structure
-      if (newValue && typeof newValue === "object") {
-        const categories = newValue as unknown as {
-          include?: string[]
-          exclude?: string[]
-        }
-
-        console.log("🔄 [Categories] Updated:")
-        if (categories.include && Array.isArray(categories.include)) {
-          console.log(
-            `  • Include (${categories.include.length}): ${categories.include.length ? categories.include.join(", ") : "(none)"}`
-          )
-        }
-        if (categories.exclude && Array.isArray(categories.exclude)) {
-          console.log(
-            `  • Exclude (${categories.exclude.length}): ${categories.exclude.length ? categories.exclude.join(", ") : "(none)"}`
-          )
-        }
-
-        // Mark categories as dirty to trigger reprocessing
-        categoriesDirty = true
-        lastCategoriesUpdate = Date.now()
-
-        // Show status indicator
-        showCategoryUpdateStatus(
-          "Categories updated! Reprocessing posts...",
-          5000
-        )
-
-        // Reprocess visible posts immediately
-        reprocessVisiblePosts()
-      }
-    } else if (message.key === "categories-updated") {
-      // Handle categories-updated timestamp
-      lastCategoriesUpdate = message.value
-      categoriesDirty = true
-
-      // Show status indicator
-      showCategoryUpdateStatus(
-        "Categories updated! Reprocessing posts...",
-        5000
-      )
-
-      // Reprocess visible posts immediately
-      reprocessVisiblePosts()
-    }
-
-    // Send response to acknowledge receipt
-    sendResponse({ received: true })
-  }
-})
-
 // * Update verifyUserCategories to be compatible with Set-based categories
 async function verifyUserCategories() {
   console.log("🔍 [Categories] Verifying configuration...")
@@ -2382,5 +2321,7 @@ const reprocessVisiblePosts = () => {
 storage.watch({
   "user-categories": (newValue) => {
     console.log("🔄 [Categories] Update received:", newValue)
+
+    categoriesDirty = true
   }
 })

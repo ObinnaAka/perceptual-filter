@@ -34,6 +34,7 @@
     "typescript": "5.3.3"
   },
   "manifest": {
+    "key": "$CRX_KEY",
     "manifest_version": 3,
     "permissions": [
       "storage",
@@ -42,7 +43,8 @@
       "tabs"
     ],
     "host_permissions": [
-      "https://*.linkedin.com/*"
+      "https://*.linkedin.com/*",
+      "https://*x.com/*"
     ],
     "background": {
       "service_worker": "background/index.ts",
