@@ -20,6 +20,7 @@ interface CategoryResponse {
 	categories: PostCategory[]
 	confidence: number
 	tldr: string
+	success: boolean
 }
 
 const categorizeWithGPT4 = async (
@@ -164,7 +165,8 @@ Analyze both explicit and implicit content. If this appears to be from an offici
 			return {
 				categories,
 				confidence,
-				tldr
+				tldr,
+				success: true
 			}
 		} catch (error) {
 			console.error("Error parsing OpenAI result:", error, data)
@@ -175,7 +177,8 @@ Analyze both explicit and implicit content. If this appears to be from an offici
 		return {
 			categories: ["ERROR"],
 			confidence: 0,
-			tldr: "Error processing content"
+			tldr: "Error processing content",
+			success: false
 		}
 	}
 }
@@ -188,10 +191,12 @@ const handler: PlasmoMessaging.MessageHandler = async (req, res) => {
 	console.log("User categories received:", userCategories)
 
 	if (!text) {
+
 		return res.send({
 			categories: ["OTHER"],
 			confidence: 0,
-			tldr: "No text provided"
+			tldr: "No text provided",
+			success: false
 		})
 	}
 
