@@ -7,11 +7,11 @@
 
 import type { PlasmoCSConfig } from "plasmo"
 import React, { useCallback } from "react"
-import { createRoot } from "react-dom/client"
 
 import { sendToBackground } from "@plasmohq/messaging"
 import { Storage } from "@plasmohq/storage"
 
+import type { CategorizePostRequest } from "../background/messages/categorize-post"
 // Import CSS files for styling components and animations
 import "./styles/social-post-blocker.css"
 import "./styles/feed-ly-cover.css"
@@ -26,17 +26,11 @@ import {
   removeStatusIndicator
 } from "./components/StatusIndicator"
 import { FEED_SELECTORS, getCurrentPlatform } from "./config/selectors"
-// Import message listener for background script communication
-import { initializeMessageListener } from "./messaging"
 // Import services and utilities
-import { apiCache, clearAllCaches, processedPosts } from "./services/cache"
+import { processedPosts } from "./services/cache"
 import { initializeExtension } from "./services/initService"
 // Import types
-import type {
-  ContentFilterContextType,
-  PostData,
-  UserCategories
-} from "./types"
+import type { ContentFilterContextType, UserCategories } from "./types"
 import { createPostHash, extractPostText } from "./utils/post"
 
 // ! Refactor: Consider moving type declarations to a separate types.ts file
@@ -63,14 +57,11 @@ declare global {
 export const config: PlasmoCSConfig = {
   matches: [
     "https://www.linkedin.com/feed*",
-    "https://twitter.com/home",
-    "https://x.com/home"
+    "https://twitter.com/home*",
+    "https://x.com/home*"
   ],
   all_frames: false
 }
-
-// Track when categories were last updated
-let lastCategoriesUpdate = Date.now()
 
 // Initialize storage instance for managing extension data
 const storage = new Storage()
@@ -91,28 +82,20 @@ export const ContentFilterContext =
  * Provides post processing capabilities to the entire application
  */
 export function ContentFilterProvider({ children }) {
-  const storage = new Storage()
-
   const processPost = useCallback(async (container: Element) => {
     // Check if filter is enabled
     const enabled = await storage.get("enabled")
 
-    if (!enabled) {
-      return
-    }
+    if (!enabled) return
 
     // Prevent duplicate processing
-    if (container.hasAttribute("data-feedlyprocessing")) {
-      return
-    }
+    if (container.hasAttribute("data-feedlyprocessing")) return
 
     // Determine platform
     const platform = getCurrentPlatform()
 
     // Skip if not a post container
-    if (!container.matches(FEED_SELECTORS[platform].POST)) {
-      return
-    }
+    if (!container.matches(FEED_SELECTORS[platform].POST)) return
 
     // Mark post as being processed
     container.setAttribute("data-feedlyprocessing", "true")
@@ -122,6 +105,8 @@ export function ContentFilterProvider({ children }) {
 
     // Track processing duration for visual feedback
     const processingStartTime = Date.now()
+
+    // ? What does this do?
     const minimumProcessingTime = 400
 
     // Extract post content
@@ -130,10 +115,11 @@ export function ContentFilterProvider({ children }) {
     // Create a hash for this post
     const postHash = createPostHash({ text: postText })
 
-    // Check if we've already processed this post
+    // * Check if we've already processed this post
     if (processedPosts.has(postHash)) {
       const cachedResult = processedPosts.get(postHash)
-      console.log("🔄 [Cache] Using cached result for post:", postHash)
+
+      console.log("🔄 [Cache] Using cached result for post:", cachedResult)
 
       // Ensure minimum processing time for visual feedback
       const processingTime = Date.now() - processingStartTime
@@ -185,9 +171,10 @@ export function ContentFilterProvider({ children }) {
 
       // Prepare the API request
       const apiRequest = {
-        text: postText.slice(0, 1000), // Limit text length
-        categories: userCategoriesRaw
-      }
+        content: postText.slice(0, 1500), // Limit text length
+        userCategories: userCategoriesRaw,
+        authorName: container.getAttribute("data-author-name") || undefined
+      } as CategorizePostRequest
 
       // Send to background script for processing
       const response = await sendToBackground({
@@ -204,9 +191,24 @@ export function ContentFilterProvider({ children }) {
       }
 
       if (response.success) {
-        const { categories, tldr, shouldBlock, matchedCategories } = response
+        console.log("✅ [API] Post processed successfully:", response)
+        const { categories, tldr, confidence, matchedCategories } = response
 
-        // Cache the result
+
+				let shouldBlock = categories.reduce((acc, category) => {
+					 return acc || userCategoriesRaw.exclude.includes(category)
+				}, false)
+
+				const shouldInclude = categories.reduce((acc, category) => {
+					 return acc || userCategoriesRaw.include.includes(category)
+				}, false)
+
+				// Include categories take precedence over block categories
+				if (shouldInclude) {
+					shouldBlock = false
+				}
+
+        // * Cache the result
         processedPosts.set(postHash, {
           categories,
           tldr,
@@ -216,6 +218,7 @@ export function ContentFilterProvider({ children }) {
         })
 
         if (shouldBlock) {
+          console.log("[Processing] Post processed, should block ❌")
           // Update status indicator
           addStatusIndicator(container, "blocked")
 
@@ -228,6 +231,7 @@ export function ContentFilterProvider({ children }) {
             matchedCategories
           )
         } else {
+          console.log("[Processing] Post processed, no action required ✅")
           // Update status indicator
           addStatusIndicator(container, "processed")
 

@@ -27,17 +27,46 @@ export function extractPostText(container: Element): string {
 
 	try {
 		if (platform === "TWITTER") {
-			const fullArticleText = container.textContent || ""
-			const tweetTextElement = container.querySelector(
-				'[data-testid="tweetText"]'
-			)
-			const mainText = tweetTextElement?.textContent || ""
-			postText = mainText || fullArticleText
+			// First try to find the tweetText element using data-testid
+			const tweetTextElement = container.querySelector('[data-testid="tweetText"]')
 
-			if (postText.length < 30 && fullArticleText.length > postText.length) {
-				postText = fullArticleText
+			if (tweetTextElement) {
+				postText = tweetTextElement.textContent || ""
+				console.log("🔍 [Twitter] Found text via tweetText data-testid")
+			} else {
+				// If not found, look for text in article elements with specific IDs
+				const articleElement = container.closest('article[role="article"]')
+				if (articleElement) {
+					// Find all text elements within the article that might contain the tweet content
+					const possibleTextElements = articleElement.querySelectorAll('[dir="auto"][lang="en"], [dir="auto"][lang]')
+					console.log(`🔍 [Twitter] Found ${possibleTextElements.length} possible text elements in article`)
+
+					for (const element of possibleTextElements) {
+						// Skip elements that are likely user names or metadata
+						if (element.closest('[data-testid="User-Name"]') ||
+							element.textContent?.includes('@') ||
+							element.textContent?.length < 5) {
+							continue
+						}
+
+						// If we find a substantial text element, use it
+						if (element.textContent && element.textContent.length > 10) {
+							postText = element.textContent
+							console.log("🔍 [Twitter] Found text via article content")
+							break
+						}
+					}
+				} else {
+					console.log("🔍 [Twitter] No article element found")
+				}
 			}
-		} else {
+
+			// If still no text found, fall back to container text
+			if (!postText) {
+				postText = container.textContent || ""
+				console.log("🔍 [Twitter] Using fallback container text")
+			}
+		} else if (platform === "LINKEDIN") {
 			const textElement = container.querySelector(
 				".feed-shared-update-v2__description, .update-components-text"
 			)
@@ -58,8 +87,7 @@ export function extractPostText(container: Element): string {
 			}
 		}
 
-
-		console.log("🔍 [Post Text] Extracted text:", postText)
+		console.log(`🔍 [Post Text] Extracted text (${postText.length} chars): "${postText.substring(0, 50)}${postText.length > 50 ? "..." : ""}"`)
 		return postText
 	} catch (error) {
 		console.error("❌ Error extracting post text:", error)
@@ -74,58 +102,86 @@ export function findBestOverlayTarget(container: Element, platform: string): Ele
 	// Default to the container itself
 	let targetElement = container
 
-	if (platform === "TWITTER") {
-		// First, try to find the cellInnerDiv which is the highest-level container
-		const cellInnerDiv = container.closest('[data-testid="cellInnerDiv"]')
+	try {
+		if (platform === "TWITTER") {
+			console.log("🔍 [Target] Finding best overlay target for Twitter")
 
-		if (cellInnerDiv) {
-			targetElement = cellInnerDiv
-			return targetElement
-		}
+			// First, try to find the article element which is the main tweet container
+			const article = container.closest('article[role="article"]')
 
-		// If no cellInnerDiv, try to find the article element
-		const article = container.closest("article")
+			if (article) {
+				console.log("🔍 [Target] Found article element")
+				targetElement = article
 
-		if (article) {
-			targetElement = article
+				// For media tweets, we need to find the parent that fully contains the media
+				const mediaContainer = article.querySelector(
+					'[data-testid="videoPlayer"], [data-testid="tweetPhoto"], video, img[src*="twimg.com"]'
+				)
 
-			// For media tweets, we need to find the parent that fully contains the media
-			const mediaContainer = article.querySelector(
-				'[data-testid="videoPlayer"], [data-testid="tweetPhoto"], [data-testid="videoComponent"]'
-			)
+				if (mediaContainer) {
+					console.log("🎥 [Target] Found media content, optimizing overlay")
 
-			if (mediaContainer) {
-				console.log("🎥 [Media Tweet] Found media content, optimizing overlay")
-				const articleParent =
-					article.parentElement?.parentElement?.parentElement
-				if (articleParent) {
-					targetElement = articleParent
+					// Try to find a higher-level container that will fully cover the media
+					// First try the direct parent of the article
+					const articleParent = article.parentElement
+					if (articleParent) {
+						targetElement = articleParent
+						console.log("🎯 [Target] Using article parent for media tweet")
+					}
+				}
+
+				return targetElement
+			}
+
+			// If no article found, try to find the cellInnerDiv which is another high-level container
+			const cellInnerDiv = container.closest('[data-testid="cellInnerDiv"]')
+			if (cellInnerDiv) {
+				console.log("🔍 [Target] Found cellInnerDiv element")
+				targetElement = cellInnerDiv
+				return targetElement
+			}
+
+			// If neither article nor cellInnerDiv found, try to find any tweet-like container
+			const tweetContainer = container.closest('.css-175oi2r[role="article"], div[data-testid="tweet"]')
+			if (tweetContainer) {
+				console.log("🔍 [Target] Found tweet container element")
+				targetElement = tweetContainer
+				return targetElement
+			}
+
+			console.log("⚠️ [Target] Using fallback container for Twitter")
+		} else if (platform === "LINKEDIN") {
+			console.log("🔍 [Target] Finding best overlay target for LinkedIn")
+
+			// LinkedIn-specific element targeting logic
+			const postContainer = container.closest(".feed-shared-update-v2")
+
+			if (postContainer) {
+				console.log("🔍 [Target] Found LinkedIn post container")
+				targetElement = postContainer
+			} else {
+				const alternativeSelectors = [
+					".feed-shared-update-v2__content",
+					".update-components-actor",
+					".update-components-text"
+				]
+
+				for (const selector of alternativeSelectors) {
+					const element =
+						container.closest(selector) || container.querySelector(selector)
+					if (element) {
+						console.log(`🔍 [Target] Found LinkedIn element with selector: ${selector}`)
+						targetElement = element
+						break
+					}
 				}
 			}
 		}
-	} else if (platform === "LINKEDIN") {
-		// LinkedIn-specific element targeting logic
-		const postContainer = container.closest(".feed-shared-update-v2")
 
-		if (postContainer) {
-			targetElement = postContainer
-		} else {
-			const alternativeSelectors = [
-				".feed-shared-update-v2__content",
-				".update-components-actor",
-				".update-components-text"
-			]
-
-			for (const selector of alternativeSelectors) {
-				const element =
-					container.closest(selector) || container.querySelector(selector)
-				if (element) {
-					targetElement = element
-					break
-				}
-			}
-		}
+		console.log(`🎯 [Target] Final target element: ${targetElement.tagName}, classes: ${(targetElement as HTMLElement).className.substring(0, 50)}...`)
+		return targetElement;
+	} catch (error) {
+		console.error("❌ [Target] Error finding best overlay target:", error)
+		return container;
 	}
-
-	return targetElement
 } 
