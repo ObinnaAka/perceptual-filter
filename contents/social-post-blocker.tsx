@@ -109,10 +109,10 @@ const FeedlyCoverElement: React.FC<{
       {/* Always use compact layout */}
       <div className="feed-ly-compact">
         <div className="feed-ly-compact-tags-container">
-          <span className="feed-ly-badge-dot"></span>
+          <span className="feed-ly-badge-dot"/>
           <div className="feed-ly-compact-tags">
             {displayCategories.map((category, index) => (
-              <span key={index} className="feed-ly-compact-tag">
+              <span key={category} className="feed-ly-compact-tag">
                 {category.toUpperCase()}
               </span>
             ))}
@@ -123,7 +123,7 @@ const FeedlyCoverElement: React.FC<{
             )}
           </div>
         </div>
-        <button onClick={handleUnmute} className="feed-ly-compact-button">
+        <button onClick={handleUnmute} type="button" className="feed-ly-compact-button">
           <span className="feed-ly-button-text">Show</span>
           <span className="feed-ly-button-icon">→</span>
         </button>
@@ -437,7 +437,7 @@ async function applyPostCover(
         />
       )
     } catch (error) {
-      console.error(`❌ [UI] Error rendering cover:`, error)
+      console.error("❌ [UI] Error rendering cover:", error)
     }
   }
 }
@@ -642,7 +642,7 @@ function addStatusIndicator(
     ;(existingIndicator as HTMLElement).title = title
 
     return existingIndicator
-  } else {
+  }
     // Create a new indicator
     const indicator = document.createElement("div")
     indicator.className = `feed-ly-status-indicator feed-ly-status-${status} feed-ly-status-new`
@@ -669,7 +669,6 @@ function addStatusIndicator(
     container.appendChild(indicator)
 
     return indicator
-  }
 }
 
 // Function to remove status indicator from a post
@@ -718,7 +717,8 @@ export function ContentFilterProvider({ children }) {
   const storage = new Storage()
 
   // Convert processPost to useCallback
-  const processPost = useCallback(async (container: Element) => {
+  // biome-ignore lint/correctness/useExhaustiveDependencies: <explanation>
+    const processPost = useCallback(async (container: Element) => {
     // Check if filter is enabled
     const enabled = await storage.get("enabled")
 
@@ -801,7 +801,7 @@ export function ContentFilterProvider({ children }) {
         ]
         for (const selector of alternativeLinkedInSelectors) {
           const element = container.querySelector(selector)
-          if (element && element.textContent) {
+          if (element?.textContent) {
             postText = element.textContent
             break
           }
@@ -1010,14 +1010,13 @@ export function ContentFilterProvider({ children }) {
       }
 
       // Get post categorization
-      let response
+      let response: { categories: string[]; tldr: string }
       try {
         // Check if we have a cached result from the background script
+        // biome-ignore lint/suspicious/noExplicitAny: <explanation>
         const debugObj = window.__feedlyDebug as any
         if (
-          debugObj &&
-          debugObj.categorizeCache &&
-          debugObj.categorizeCache.has(postHash)
+          debugObj?.categorizeCache?.has(postHash)
         ) {
           console.log(
             `🔍 [Post ${postHash.substring(0, 8)}] Using cached categorization result`
@@ -1888,10 +1887,10 @@ function initDebugUtils() {
       // Flash the indicator after 2 seconds
       setTimeout(() => {
         console.log("🧪 [Debug] Flashing indicator")
-        if (statusElement && statusElement.style) {
+        if (statusElement?.style) {
           statusElement.style.transform = "translateY(-10px) scale(1.05)"
           setTimeout(() => {
-            if (statusElement && statusElement.style) {
+            if (statusElement?.style) {
               statusElement.style.transform = ""
             }
           }, 300)
@@ -2048,20 +2047,19 @@ function initDebugUtils() {
 
         console.log("🧪 [Debug] Background response:", response)
 
-        if (response && response.success) {
+        if (response?.success) {
           // Show a status indicator to confirm the test was initiated
           showCategoryUpdateStatus(
             `Storage watch test initiated via background: ${response.value}`,
             5000
           )
           return "Storage watch test initiated - check console for results"
-        } else {
+        }
           console.error(
             "❌ [Debug] Error in storage watch test:",
             response?.error || "Unknown error"
           )
           return "Storage watch test failed - see console for details"
-        }
       } catch (error) {
         console.error("❌ [Debug] Error sending message to background:", error)
         return "Storage watch test failed - see console for details"
@@ -2082,7 +2080,7 @@ function initDebugUtils() {
         // Set a test value directly in storage
         const testKey = "user-categories"
         const testValue = {
-          include: ["Test Category " + Date.now()],
+          include: [`Test Category ${Date.now()}`],
           exclude: []
         }
 
@@ -2170,7 +2168,7 @@ function showCategoryUpdateStatus(message: string, autoHideAfter = 0) {
   setTimeout(() => {
     statusElement.style.transform = "translateY(-5px) scale(1.02)"
     setTimeout(() => {
-      if (statusElement && statusElement.style) {
+      if (statusElement?.style) {
         statusElement.style.transform = ""
       }
     }, 200)
