@@ -11,27 +11,27 @@ import React, { useCallback } from "react"
 import { sendToBackground } from "@plasmohq/messaging"
 import { Storage } from "@plasmohq/storage"
 
-import type { CategorizePostRequest } from "../background/messages/categorize-post"
+import type { CategorizePostRequest } from "url:~/background/messages/categorize-post"
 // Import CSS files for styling components and animations
-import "./styles/social-post-blocker.css"
-import "./styles/feed-ly-cover.css"
-import "./styles/compact-mode.css"
-import "./styles/status-indicators.css"
-import "./styles/animations.css"
+import "url:~contents/styles/social-post-blocker.css"
+import "url:~contents/styles/feed-ly-cover.css"
+import "url:~contents/styles/compact-mode.css"
+import "url:~contents/styles/status-indicators.css"
+import "url:~contents/styles/animations.css"
 
-import { applyPostCover, removePostCover } from "./components/PostCover"
+import { applyPostCover, removePostCover } from "url:~/contents/components/PostCover"
 import {
   addStatusIndicator,
   removeProcessingAttribute,
   removeStatusIndicator
-} from "./components/StatusIndicator"
-import { FEED_SELECTORS, getCurrentPlatform } from "./config/selectors"
+} from "url:~/contents/components/StatusIndicator"
+import { FEED_SELECTORS, getCurrentPlatform } from "url:~/contents/config/selectors"
 // Import services and utilities
-import { processedPosts } from "./services/cache"
-import { initializeExtension } from "./services/initService"
+import { processedPosts } from "url:~/contents/services/cache"
+import { initializeExtension } from "url:~/contents/services/initService"
 // Import types
-import type { ContentFilterContextType, UserCategories } from "./types"
-import { createPostHash, extractPostText } from "./utils/post"
+import type { ContentFilterContextType, UserCategories } from "url:~/contents/types"
+import { createPostHash, extractPostText } from "url:~/contents/utils/post"
 
 // ! Refactor: Consider moving type declarations to a separate types.ts file
 // Extend Window interface to include debug utilities
