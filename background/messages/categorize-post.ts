@@ -1,6 +1,10 @@
 import type { PlasmoMessaging } from "@plasmohq/messaging"
 import { Storage } from "@plasmohq/storage"
 
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+
+
+
 const storage = new Storage()
 
 export type PostCategory =
@@ -8,25 +12,42 @@ export type PostCategory =
 	| "BRAGGING"
 	| "PROMOTIONAL"
 	| "MEME"
+	| "POLITICS"
+	| "ELON MUSK"
+	| "AI"
 	| "OTHER"
 	| string // Allow any user-defined category
 
-interface UserCategories {
+export interface UserCategories {
 	include: string[]
 	exclude: string[]
 }
 
-interface CategoryResponse {
+export interface CategorizationRequest {
+	text: string
+	userCategories: UserCategories
+	authorName?: string
+}
+
+export interface CategorizationResponse {
 	categories: PostCategory[]
-	confidence: number
+	confidence: "low" | "medium" | "high"
 	tldr: string
 }
+
+const categoryResponseTemplate: CategorizationResponse = {
+	categories: ["INFORMATIONAL", "AI"] as PostCategory[],
+	confidence: "medium",
+	tldr: "A summary of the post content"
+}
+
+
 
 const categorizeWithGPT4 = async (
 	text: string,
 	userCategories: UserCategories,
 	authorName?: string
-): Promise<CategoryResponse> => {
+): Promise<CategorizationResponse> => {
 	try {
 		const apiKey = await storage.get("openai-api-key")
 
@@ -42,8 +63,8 @@ const categorizeWithGPT4 = async (
 			exclude: Array.isArray(userCategories?.exclude) ? userCategories.exclude : []
 		}
 
-		// Log the categories we're using
-		console.log("Using categories for categorization:", safeUserCategories)
+		// const genAI = new GoogleGenerativeAI(apiKey);
+		// const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
 		// Combine all categories for the model to consider
 		const allCategories = [...new Set([
@@ -106,7 +127,9 @@ Then the post should AUTOMATICALLY be categorized as "POLITICS" regardless of th
 2. Consider the author's identity when relevant (politicians, government officials, celebrities, etc.)
 3. Assign ALL relevant categories from the list above
 4. Provide a 1-2 sentence TL;DR of the post content
-5. Return your response in JSON format with "categories", "confidence", and "tldr" fields
+
+Please give your response in the following json format:
+${JSON.stringify(categoryResponseTemplate)}
 
 ## POST TO CATEGORIZE:
 """
@@ -114,6 +137,9 @@ ${text}
 """
 
 Analyze both explicit and implicit content. If this appears to be from an official government source (like The White House) or a known political figure, it should automatically be categorized as POLITICS regardless of content.`
+
+		// const result = await model.generateContent(prompt);
+		// console.log(result.response.text());
 
 		// Call OpenAI API
 		const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -149,10 +175,10 @@ Analyze both explicit and implicit content. If this appears to be from an offici
 				? parsedResult.categories.map(cat => String(cat).toUpperCase())
 				: []
 
-			// Validate confidence is a number between 0 and 1
-			const confidence = typeof parsedResult.confidence === "number"
-				? Math.min(Math.max(parsedResult.confidence, 0), 1)
-				: 0.5
+			// Validate confidence is a string
+			const confidence = typeof parsedResult.confidence === "string"
+				? parsedResult.confidence
+				: "low"
 
 			// Ensure tldr is a string
 			const tldr = typeof parsedResult.tldr === "string"
@@ -174,7 +200,7 @@ Analyze both explicit and implicit content. If this appears to be from an offici
 		console.error("Error categorizing post:", error)
 		return {
 			categories: ["ERROR"],
-			confidence: 0,
+			confidence: "low",
 			tldr: "Error processing content"
 		}
 	}
