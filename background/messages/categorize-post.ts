@@ -3,8 +3,6 @@ import { Storage } from "@plasmohq/storage"
 
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-
-
 const storage = new Storage()
 
 export type PostCategory =
@@ -49,7 +47,9 @@ const categorizeWithGPT4 = async (
 	authorName?: string
 ): Promise<CategorizationResponse> => {
 	try {
-		const apiKey = await storage.get("openai-api-key")
+		// const apiKey = await storage.get("openai-api-key")
+		const apiKey = process.env.PLASMO_PUBLIC_OPENAI_API_KEY
+		console.log("API key:", apiKey)
 
 		if (!apiKey) {
 			throw new Error(
