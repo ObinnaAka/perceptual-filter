@@ -488,7 +488,7 @@ function IndexPopup() {
 			<div className="px-6 py-4 border-b">
 				<div className="flex items-center space-x-3">
 					<Logo />
-					<h1 className="text-xl font-bold text-foreground">Feed.ly</h1>
+					<h1 className="text-xl font-bold text-foreground">FeedMax</h1>
 				</div>
 			</div>
 

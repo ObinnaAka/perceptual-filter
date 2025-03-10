@@ -1,10 +1,10 @@
-# Feed.ly - AI-Powered Content Filtering for LinkedIn
+# FeedMax - AI-Powered Content Filtering for LinkedIn
 
-Feed.ly is a browser extension that helps you reclaim control of your LinkedIn feed using AI-powered content filtering. Instead of endless scrolling through irrelevant content, Feed.ly intelligently categorizes posts to show you only what matters to you.
+FeedMax is a browser extension that helps you reclaim control of your LinkedIn feed using AI-powered content filtering. Instead of endless scrolling through irrelevant content, FeedMax intelligently categorizes posts to show you only what matters to you.
 
 ## 🌟 Inspiration
 
-The web started as a place of discovery, but has evolved into an environment where doom scrolling and AI-generated content dominate our attention. Feed.ly aims to reverse this trend by using AI for good - helping users create a more meaningful and personalized social feed.
+The web started as a place of discovery, but has evolved into an environment where doom scrolling and AI-generated content dominate our attention. FeedMax aims to reverse this trend by using AI for good - helping users create a more meaningful and personalized social feed.
 
 ## ✨ Features
 

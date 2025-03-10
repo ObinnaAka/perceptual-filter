@@ -1,6 +1,6 @@
 {
-  "name": "feed.ly",
-  "displayName": "Feed.ly",
+  "name": "FeedMax",
+  "displayName": "FeedMax",
   "version": "0.0.1",
   "description": "AI-powered content filtering for LinkedIn - customize your feed with intelligent post categorization",
   "author": "Plasmo Corp. <foss@plasmo.com>",
